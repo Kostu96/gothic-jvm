@@ -48,7 +48,11 @@ static const char* accessFlagToString(uint16_t flag)
     if ((flag & AccessFlags::PUBLIC) && (flag & AccessFlags::STATIC)) return "public static";
     if ((flag & AccessFlags::PUBLIC) && (flag & AccessFlags::FINAL)) return "public final";
     if ((flag & AccessFlags::PUBLIC)) return "public";
+    if ((flag & AccessFlags::PROTECTED)) return "protected";
     if ((flag & AccessFlags::PRIVATE) && (flag & AccessFlags::STATIC)) return "private static";
+    if ((flag & AccessFlags::PRIVATE)) return "private";
+
+    if (flag == 0) return "";
 
     assert(false);
     return "???";
@@ -140,81 +144,77 @@ static void loadClassFile(ClassFile& classFile, u8* ptr)
     printClassInfo("This name", classFile.thisClass, classFile);
     printClassInfo("Super name", classFile.superClass, classFile);
 
-    uint16_t interfacesCount = u16FromBigEndian(ptr); ptr += 2;
-    printf("Interfaces count - %u:\n", interfacesCount);
+    classFile.interfacesCount = u16FromBigEndian(ptr); ptr += 2;
+    printf("Interfaces count - %u:\n", classFile.interfacesCount);
 
-    uint16_t* interfaces = new uint16_t[interfacesCount];
-    for (uint32_t i = 0; i < interfacesCount; i++)
+    classFile.interfaces = new u16[classFile.interfacesCount];
+    for (u32 i = 0; i < classFile.interfacesCount; i++)
     {
-        interfaces[i] = u16FromBigEndian(ptr); ptr += 2;
-        printClassInfo("  ", interfaces[i], classFile);
+        classFile.interfaces[i] = u16FromBigEndian(ptr); ptr += 2;
+        printClassInfo("  ", classFile.interfaces[i], classFile);
     }
 
-    uint16_t fieldsCount = u16FromBigEndian(ptr); ptr += 2;
-    printf("Fields count - %u:\n", fieldsCount);
+    classFile.fieldsCount = u16FromBigEndian(ptr); ptr += 2;
+    printf("Fields count - %u:\n", classFile.fieldsCount);
 
-    FieldAndMethodInfo* fields = new FieldAndMethodInfo[fieldsCount];
-    for (uint32_t i = 0; i < fieldsCount; i++)
+    classFile.fields = new FieldAndMethodInfo[classFile.fieldsCount];
+    for (uint32_t i = 0; i < classFile.fieldsCount; i++)
     {
-        fields[i].accessFlags = u16FromBigEndian(ptr); ptr += 2;
-        fields[i].nameIndex = u16FromBigEndian(ptr); ptr += 2;
-        fields[i].descriptorIndex = u16FromBigEndian(ptr); ptr += 2;
-        fields[i].attributeCount = u16FromBigEndian(ptr); ptr += 2;
-        fields[i].attributes = fields[i].attributeCount ? new AttributeInfo[fields[i].attributeCount] : nullptr;
+        classFile.fields[i].accessFlags = u16FromBigEndian(ptr); ptr += 2;
+        classFile.fields[i].nameIndex = u16FromBigEndian(ptr); ptr += 2;
+        classFile.fields[i].descriptorIndex = u16FromBigEndian(ptr); ptr += 2;
+        classFile.fields[i].attributeCount = u16FromBigEndian(ptr); ptr += 2;
+        classFile.fields[i].attributes = classFile.fields[i].attributeCount ? new AttributeInfo[classFile.fields[i].attributeCount] : nullptr;
 
-        assert(fields[i].attributeCount == 0); // unhandled attributes
+        assert(classFile.fields[i].attributeCount == 0); // unhandled attributes
 
-        ConstPoolInfo utf8Info1 = classFile.constPool[fields[i].nameIndex - 1];
+        ConstPoolInfo utf8Info1 = classFile.constPool[classFile.fields[i].nameIndex - 1];
         assert(utf8Info1.tag == ConstantTag::Utf8);
-        ConstPoolInfo utf8Info2 = classFile.constPool[fields[i].descriptorIndex - 1];
+        ConstPoolInfo utf8Info2 = classFile.constPool[classFile.fields[i].descriptorIndex - 1];
         assert(utf8Info2.tag == ConstantTag::Utf8);
-        printf("   %s %.*s : ", accessFlagToString(fields[i].accessFlags),
+        printf("   %s %.*s : ", accessFlagToString(classFile.fields[i].accessFlags),
             utf8Info1.utf8Info.length, utf8Info1.utf8Info.ptr);
         parseFieldDescriptor(utf8Info2.utf8Info.ptr, utf8Info2.utf8Info.length);
         printf("\n");
     }
 
-    uint16_t methodsCount = u16FromBigEndian(ptr); ptr += 2;
-    printf("Methods count - %u:\n", methodsCount);
+    classFile.methodsCount = u16FromBigEndian(ptr); ptr += 2;
+    printf("Methods count - %u:\n", classFile.methodsCount);
 
-    FieldAndMethodInfo* methods = new FieldAndMethodInfo[methodsCount];
-    for (uint32_t i = 0; i < methodsCount; i++)
+    classFile.methods = new FieldAndMethodInfo[classFile.methodsCount];
+    for (uint32_t i = 0; i < classFile.methodsCount; i++)
     {
-        methods[i].accessFlags = u16FromBigEndian(ptr); ptr += 2;
-        methods[i].nameIndex = u16FromBigEndian(ptr); ptr += 2;
-        methods[i].descriptorIndex = u16FromBigEndian(ptr); ptr += 2;
-        methods[i].attributeCount = u16FromBigEndian(ptr); ptr += 2;
-        methods[i].attributes = methods[i].attributeCount ? new AttributeInfo[methods[i].attributeCount] : nullptr;
+        classFile.methods[i].accessFlags = u16FromBigEndian(ptr); ptr += 2;
+        classFile.methods[i].nameIndex = u16FromBigEndian(ptr); ptr += 2;
+        classFile.methods[i].descriptorIndex = u16FromBigEndian(ptr); ptr += 2;
+        classFile.methods[i].attributeCount = u16FromBigEndian(ptr); ptr += 2;
+        classFile.methods[i].attributes = classFile.methods[i].attributeCount ? new AttributeInfo[classFile.methods[i].attributeCount] : nullptr;
 
-        ConstPoolInfo utf8Info1 = classFile.constPool[methods[i].nameIndex - 1];
+        ConstPoolInfo utf8Info1 = classFile.constPool[classFile.methods[i].nameIndex - 1];
         assert(utf8Info1.tag == ConstantTag::Utf8);
-        ConstPoolInfo utf8Info2 = classFile.constPool[methods[i].descriptorIndex - 1];
+        ConstPoolInfo utf8Info2 = classFile.constPool[classFile.methods[i].descriptorIndex - 1];
         assert(utf8Info2.tag == ConstantTag::Utf8);
-        printf("   %s %.*s : %.*s\n", accessFlagToString(methods[i].accessFlags),
+        printf("   %s %.*s : %.*s\n", accessFlagToString(classFile.methods[i].accessFlags),
             utf8Info1.utf8Info.length, utf8Info1.utf8Info.ptr,
             utf8Info2.utf8Info.length, utf8Info2.utf8Info.ptr);
 
-        for (uint32_t j = 0; j < methods[i].attributeCount; j++)
+        for (uint32_t j = 0; j < classFile.methods[i].attributeCount; j++)
         {
-            methods[i].attributes[j].nameIndex = u16FromBigEndian(ptr); ptr += 2;
-            methods[i].attributes[j].length = u32FromBigEndian(ptr); ptr += 4;
-            methods[i].attributes[j].info = ptr; ptr += methods[i].attributes[j].length;
-
-            /*ConstPoolInfo utf8Info = classFile.constPool[methods[i].attributes[j].nameIndex - 1];
-            assert(utf8Info.tag == ConstantTag::Utf8);
-            printf("      %.*s\n", utf8Info.utf8Info.length, utf8Info.utf8Info.ptr);*/
+            classFile.methods[i].attributes[j].nameIndex = u16FromBigEndian(ptr); ptr += 2;
+            classFile.methods[i].attributes[j].length = u32FromBigEndian(ptr); ptr += 4;
+            classFile.methods[i].attributes[j].info = ptr; ptr += classFile.methods[i].attributes[j].length;
         }
     }
 
-    uint16_t attributesCount = u16FromBigEndian(ptr); ptr += 2;
-    printf("Attributes count - %u:\n", attributesCount);
+    classFile.attributesCount = u16FromBigEndian(ptr); ptr += 2;
+    printf("Attributes count - %u:\n", classFile.attributesCount);
 
-    AttributeInfo* attributes = new AttributeInfo[attributesCount];
-    for (uint32_t i = 0; i < attributesCount; i++)
+    classFile.attributes = new AttributeInfo[classFile.attributesCount];
+    for (uint32_t i = 0; i < classFile.attributesCount; i++)
     {
-        attributes[i].nameIndex = u16FromBigEndian(ptr); ptr += 2;
-        attributes[i].length = u32FromBigEndian(ptr); ptr += 4;
-        attributes[i].info = ptr; ptr += attributes[i].length;
+        classFile.attributes[i].nameIndex = u16FromBigEndian(ptr); ptr += 2;
+        classFile.attributes[i].length = u32FromBigEndian(ptr); ptr += 4;
+        classFile.attributes[i].info = ptr; ptr += classFile.attributes[i].length;
     }
 }
 
@@ -237,23 +237,123 @@ static void unloadClassFile(ClassFile& classFile)
 
 int main()
 {
-    const char* path = "C:\\Users\\Konstanty\\Desktop\\gothic3the_uste7l3z\\HG.class";
+    const char* hgPath = "C:\\Users\\Konstanty\\Desktop\\gothic3the_uste7l3z\\HG.class";
+    const char* midletPath = "C:\\Users\\Konstanty\\Desktop\\midp2.0fcs\\classes\\javax\\microedition\\midlet\\MIDlet.class";
+
     size_t fileSize;
-    if (!getFileSize(path, fileSize)) {
+    if (!getFileSize(hgPath, fileSize)) {
         printf("Could not get file size!\n");
         return -1;
     }
-    uint8_t* buffer = new uint8_t[fileSize];
-    if (!readFile(path, buffer, fileSize)) {
+    uint8_t* hgBuffer = new uint8_t[fileSize];
+    if (!readFile(hgPath, hgBuffer, fileSize)) {
         printf("Could not read file!\n");
         return -1;
     }
+    ClassFile hgClassFile;
+    loadClassFile(hgClassFile, hgBuffer);
 
-    ClassFile classFile;
-    loadClassFile(classFile, buffer);
+    if (!getFileSize(midletPath, fileSize)) {
+        printf("Could not get file size!\n");
+        return -1;
+    }
+    uint8_t* midletBuffer = new uint8_t[fileSize];
+    if (!readFile(midletPath, midletBuffer, fileSize)) {
+        printf("Could not read file!\n");
+        return -1;
+    }
+    ClassFile midletClassFile;
+    loadClassFile(midletClassFile, midletBuffer);
 
-    unloadClassFile(classFile);
+    u8* initCode = nullptr;
+    for (u32 i = 0; i < hgClassFile.methodsCount; i++)
+    {
+        const FieldAndMethodInfo& method = hgClassFile.methods[i];
+        const ConstPoolInfo& info = hgClassFile.constPool[method.nameIndex - 1];
+        if (memcmp(info.utf8Info.ptr, "<init>", std::min(info.utf8Info.length, (u16)6)) == 0) {
+            for (u32 j = 0; j < method.attributeCount; j++)
+            {
+                const ConstPoolInfo& info = hgClassFile.constPool[method.attributes[j].nameIndex - 1];
+                if (memcmp(info.utf8Info.ptr, "Code", std::min(info.utf8Info.length, (u16)4)) == 0) {
+                    u8* ptr = method.attributes[j].info;
+                    ptr += 4;
+                    u32 codeLength = u32FromBigEndian(ptr); ptr += 4;
+                    initCode = ptr;
+                }
+            }
+        }
+    }
+    assert(initCode);
+
+    u32 pc = 0;
+    bool notReturned = true;
+    while (notReturned) {
+        switch (initCode[pc++])
+        {
+        case 0x04: // iconst_1
+            printf("iconst_1\n");
+            break;
+
+        case 0x59: // dup
+            printf("dup\n");
+            break;
+
+        case 0x2A: // aload_0
+            printf("aload_0\n");
+            break;
+
+        case 0xB1: // return
+            printf("return\n");
+            notReturned = false;
+            break;
+        case 0xB2: { // getstatic
+            u16 index = initCode[pc] << 8 | initCode[pc + 1];
+            pc += 2;
+            printf("getstatic %u\n", index);
+        } break;
+        case 0xB3: { // putstatic
+            u16 index = initCode[pc] << 8 | initCode[pc + 1];
+            pc += 2;
+            printf("putstatic %u\n", index);
+        } break;
+
+        case 0xB6: { // invokevirtual
+            u16 index = initCode[pc] << 8 | initCode[pc + 1];
+            pc += 2;
+            printf("invokevirtual %u\n", index);
+        } break;
+        case 0xB7: { // invokespecial
+            u16 index = initCode[pc] << 8 | initCode[pc + 1];
+            pc += 2;
+            printf("invokespecial %u\n", index);
+        } break;
+        case 0xB8: { // invokestatic
+            u16 index = initCode[pc] << 8 | initCode[pc + 1];
+            pc += 2;
+            printf("invokestatic %u\n", index);
+        } break;
+
+        case 0xBB: { // new
+            u16 index = initCode[pc] << 8 | initCode[pc + 1];
+            pc += 2;
+            printf("new %u\n", index);
+        } break;
+
+        case 0xC7: { // ifnonnull
+            i16 offset = initCode[pc] << 8 | initCode[pc + 1];
+            pc += 2;
+            printf("ifnonnull %d\n", offset);
+        } break;
+
+        default:
+            printf("Unknown opcode: %X\n", initCode[pc - 1]);
+            assert(false);
+        }
+    }
+
+    unloadClassFile(midletClassFile);
+    unloadClassFile(hgClassFile);
     
-    delete[] buffer;
+    delete[] hgBuffer;
     return 0;
 }

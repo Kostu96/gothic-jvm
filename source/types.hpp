@@ -1,6 +1,10 @@
 #pragma once
 #include <cstdint>
 
+using i8 = int8_t;
+using i16 = int16_t;
+using i32 = int32_t;
+using i64 = int64_t;
 using u8 = uint8_t;
 using u16 = uint16_t;
 using u32 = uint32_t;
@@ -67,6 +71,7 @@ struct ConstPoolInfo {
 namespace AccessFlags {
     constexpr u16 PUBLIC    = 0x0001;
     constexpr u16 PRIVATE   = 0x0002;
+    constexpr u16 PROTECTED = 0x0004;
     constexpr u16 STATIC    = 0x0008;
     constexpr u16 FINAL     = 0x0010;
     constexpr u16 SUPER     = 0x0020;
