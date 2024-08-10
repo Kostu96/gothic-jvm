@@ -57,6 +57,8 @@ struct FieldAndMethodInfo {
     AttributeInfo* attributes;
 };
 
+class Class;
+
 // Binary representation of a class
 // https://docs.oracle.com/javase/specs/jvms/se6/html/ClassFile.doc.html
 class ClassFile
@@ -90,4 +92,6 @@ private:
     FieldAndMethodInfo* m_methods = nullptr;
     u16 m_attributesCount;
     AttributeInfo* m_attributes = nullptr;
+
+    friend class Class;
 };

@@ -3,8 +3,13 @@
 
 union ConstantPoolEntry
 {
-
+    struct {
+        u16 symbolicRef1;
+        u16 symbolicRef2;
+    };
+    u32 classPoolIndex;
 };
+static_assert(sizeof(ConstantPoolEntry) == 4);
 
 class ClassFile;
 
@@ -20,4 +25,5 @@ public:
     Class& operator=(const Class&) = delete;
 private:
     ConstantPoolEntry* m_constantPool = nullptr;
+    u16 m_constantPoolSize;
 };

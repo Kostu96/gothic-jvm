@@ -31,7 +31,7 @@ workspace "gothicJVM"
 
 project "JVM"
    kind "ConsoleApp"
-   location "build/Game"
+   location "build/JVM"
    targetdir "%{prj.location}/%{cfg.buildcfg}"
    debugdir "%{prj.location}/%{cfg.buildcfg}"
    language "C++"

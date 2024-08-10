@@ -45,9 +45,7 @@ ClassFile::ClassFile(const char* path)
             m_constantPool[i].longInteger = parseU64BigEndian(ptr);
             i++;
         } break;
-        case ConstPoolInfo::Tag::Class: {
-            m_constantPool[i].u16Index = parseU16BigEndian(ptr);
-        } break;
+        case ConstPoolInfo::Tag::Class:
         case ConstPoolInfo::Tag::String: {
             m_constantPool[i].u16Index = parseU16BigEndian(ptr);
         } break;
