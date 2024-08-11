@@ -1,6 +1,8 @@
 #pragma once
 #include "types.hpp"
 
+#include <string_view>
+
 struct ConstPoolInfo {
     enum class Tag : u8 {
         Utf8 = 1,
@@ -66,6 +68,8 @@ class ClassFile
 public:
 	explicit ClassFile(const char* path);
 	~ClassFile();
+
+    std::string_view getClassName(u16 index) const;
 
 	// Print class representation to stdout (for debug)
 	void print() const;

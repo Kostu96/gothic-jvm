@@ -82,7 +82,12 @@ ClassFile::ClassFile(const char* path)
         m_fields[i].attributeCount = parseU16BigEndian(ptr);
         m_fields[i].attributes = m_fields[i].attributeCount ? new AttributeInfo[m_fields[i].attributeCount] : nullptr;
 
-        assert(m_fields[i].attributeCount == 0); // unhandled attributes
+        for (u16 j = 0; j < m_fields[i].attributeCount; j++)
+        {
+            m_fields[i].attributes[j].nameIndex = parseU16BigEndian(ptr);
+            m_fields[i].attributes[j].length = parseU32BigEndian(ptr);
+            m_fields[i].attributes[j].info = ptr; ptr += m_fields[i].attributes[j].length;
+        }
     }
 
     m_methodsCount = parseU16BigEndian(ptr);
@@ -127,6 +132,16 @@ ClassFile::~ClassFile()
     delete[] m_rawFileBuffer;
 }
 
+std::string_view ClassFile::getClassName(u16 index) const
+{
+    auto& classInfo = m_constantPool[index - 1];
+    assert(classInfo.tag == ConstPoolInfo::Tag::Class);
+    auto& utf8Info = m_constantPool[classInfo.u16Index - 1];
+    assert(utf8Info.tag == ConstPoolInfo::Tag::Utf8);
+
+    return { utf8Info.utf8.ptr, utf8Info.utf8.length };
+}
+
 void ClassFile::print() const
 {
     printf("ClassFile: %s\n", m_filename);
@@ -149,6 +164,7 @@ void ClassFile::print() const
             break;
         case ConstPoolInfo::Tag::Long:
             printf("%-12s %lld\n", "Long", m_constantPool[i].longInteger);
+            i++;
             break;
         case ConstPoolInfo::Tag::Class:
             printf("%-12s %u\n", "Class", m_constantPool[i].u16Index);
@@ -179,7 +195,10 @@ void ClassFile::print() const
     if (m_interfacesCount) {
         printf(" interfaces:\n");
         printf("  idx value\n");
-        assert(false); // implement interfaces
+    }
+    for (u16 i = 0; i < m_interfacesCount; i++)
+    {
+        printf("  %2u: %u\n", i, m_interfaces[i]);
     }
     printf(" fields_count: %u\n", m_fieldsCount);
     if (m_fieldsCount) {
@@ -203,6 +222,9 @@ void ClassFile::print() const
     if (m_attributesCount) {
         printf(" attributes:\n");
         printf("  idx value\n");
-        assert(false); // implement attributes
+    }
+    for (u16 i = 0; i < m_attributesCount; i++)
+    {
+        printf("  %2u: %u\n", i, m_attributes[i].nameIndex);
     }
 }
