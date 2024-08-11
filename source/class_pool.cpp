@@ -29,9 +29,7 @@ u32 ClassPool::loadClass(std::string_view name)
 		}
 		assert(!filepath.empty());
 
-		ClassFile classFile(filepath.c_str());
-
-		Class c(*this, classFile);
+		Class c(*this, filepath.c_str());
 
 		m_classes.emplace_back(std::move(c));
 		u32 index = (u32)m_classes.size() - 1;

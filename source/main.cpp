@@ -7,11 +7,16 @@ int main()
     ClassPool classPool;
     classPool.addToClassPath("../../../misc/gothic3thebeginning"); // TODO(Kostu): temp
     classPool.addToClassPath("../../../misc/classes"); // TODO(Kostu): temp
+    classPool.addToClassPath("../../../misc/tests"); // TODO(Kostu): temp
     
     classPool.loadClass("java/lang/Object");
-    u32 HGClassIndex =  classPool.loadClass("HG");
+    /*u32 HGClassIndex =  classPool.loadClass("HG");
     Class& HGClass = classPool.getClass(HGClassIndex);
-    HGClass.prepare();
+    HGClass.prepare();*/
+
+    u32 HelloWorldClassIndex = classPool.loadClass("HelloWorld");
+    Class& HelloWorldClass = classPool.getClass(HelloWorldClassIndex);
+    HelloWorldClass.prepare();
 
     /*u8* initCode = nullptr;
     for (u32 i = 0; i < hgClassFile.methodsCount; i++)

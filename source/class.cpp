@@ -5,43 +5,43 @@
 #include <cassert>
 #include <functional>
 
-Class::Class(ClassPool& classPool, const ClassFile& classFile) noexcept :
-    m_classPoolRef{ classPool }
+Class::Class(ClassPool& classPool, const char* classFilename) noexcept :
+    m_classPoolRef{ classPool },
+    m_classFile{ new ClassFile(classFilename) }
 {
-    m_constantPoolSize = classFile.m_constantPoolCount - 1;
+    m_constantPoolSize = m_classFile->m_constantPoolCount - 1;
     m_constantPool = new ConstantPoolEntry[m_constantPoolSize];
     for (u16 i = 0; i < m_constantPoolSize; i++)
     {
-        switch (classFile.m_constantPool[i].tag)
+        switch (m_classFile->m_constantPool[i].tag)
         {
         case ConstPoolInfo::Tag::Class:
-            m_constantPool[i].symbolicRef1 = classFile.m_constantPool[i].u16Index - 1;
+            m_constantPool[i].symbolicRef1 = m_classFile->m_constantPool[i].u16Index - 1;
             break;
         }
     }
 
-    m_superClassIndex = (classFile.m_superClass != 0) ?
-        m_classPoolRef.loadClass(classFile.getClassName(classFile.m_superClass)) :
+    m_superClassIndex = (m_classFile->m_superClass != 0) ?
+        m_classPoolRef.loadClass(m_classFile->getClassName(m_classFile->m_superClass)) :
         InvalidClassIndex;
 
-    if (classFile.m_interfacesCount > 0) {
-        m_interfacesSize = classFile.m_interfacesCount;
+    if (m_classFile->m_interfacesCount > 0) {
+        m_interfacesSize = m_classFile->m_interfacesCount;
         m_interfaces = new u32[m_interfacesSize];
         for (u16 i = 0; i < m_interfacesSize; i++)
         {
-            m_interfaces[i] = m_classPoolRef.loadClass(classFile.getClassName(classFile.m_interfaces[i]));
+            m_interfaces[i] = m_classPoolRef.loadClass(m_classFile->getClassName(m_classFile->m_interfaces[i]));
         }
     }
 
-    // TODO(Kostu): fields
-    if (classFile.m_fieldsCount > 0) {
-        m_fieldsSize = classFile.m_fieldsCount;
+    if (m_classFile->m_fieldsCount > 0) {
+        m_fieldsSize = m_classFile->m_fieldsCount;
         m_fields = new Field[m_fieldsSize];
         for (u16 i = 0; i < m_fieldsSize; i++)
         {
-            m_fields[i].accessFlags = classFile.m_fields[i].accessFlags;
-            m_fields[i].nameIndex = classFile.m_fields[i].nameIndex - 1;
-            m_fields[i].descriptorIndex = classFile.m_fields[i].descriptorIndex - 1;
+            m_fields[i].accessFlags = m_classFile->m_fields[i].accessFlags;
+            m_fields[i].nameIndex = m_classFile->m_fields[i].nameIndex - 1;
+            m_fields[i].descriptorIndex = m_classFile->m_fields[i].descriptorIndex - 1;
         }
     }
 }
@@ -51,6 +51,7 @@ Class::~Class()
     delete[] m_fields;
     delete[] m_interfaces;
     delete[] m_constantPool;
+    delete m_classFile;
 }
 
 Class::Class(Class&& other) noexcept :
@@ -73,11 +74,6 @@ Class::Class(Class&& other) noexcept :
     other.m_interfacesSize = 0;
     other.m_fields = nullptr;
     other.m_fieldsSize = 0;
-}
-
-void Class::derive(const ClassFile& classFile)
-{
-    
 }
 
 static void parseFieldDescriptor(const char* desc, u16 length)
@@ -114,7 +110,16 @@ void Class::prepare()
     for (u16 i = 0; i < m_fieldsSize; i++)
     {
         if (m_fields[i].accessFlags & AccessFlags::STATIC) {
-            //printf("static field %u: %s\n", i, name.c_str());
+            const auto& name = m_classFile->m_constantPool[m_fields[i].nameIndex];
+            const auto& desc = m_classFile->m_constantPool[m_fields[i].descriptorIndex];
+            //printf("static field %u: %.*s - %.*s\n", i, name.utf8.length,  name.utf8.ptr, desc.utf8.length, desc.utf8.ptr);
+
+            const char* ptr = desc.utf8.ptr;
+            while (*ptr == '[') ptr++;
+            if (*ptr == 'L') {
+                ptr++;
+                m_classPoolRef.loadClass({ ptr, (u16)(desc.utf8.length - (i16)(ptr - desc.utf8.ptr) - 1) });
+            }
         }
     }
 }

@@ -36,7 +36,7 @@ class ClassPool;
 class Class
 {
 public:
-    Class(ClassPool& classPool, const ClassFile& classFile) noexcept;
+    Class(ClassPool& classPool, const char* classFilename) noexcept;
     ~Class();
     Class(Class&& other) noexcept;
 
