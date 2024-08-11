@@ -1,42 +1,12 @@
 #include "class_pool.hpp"
 
 #include <cassert>
-#include <functional>
-
-static void parseFieldDescriptor(const char* desc, u16 length)
-{
-    std::function<void(const char*, u16)> parse = [&parse](const char* ptr, u16 length) {
-        switch (*ptr) {
-        case 'B': printf("byte"); break;
-        case 'C': printf("char"); break;
-        case 'D': printf("double"); break;
-        case 'F': printf("float"); break;
-        case 'I': printf("int"); break;
-        case 'J': printf("long"); break;
-        case 'S': printf("short"); break;
-        case 'Z': printf("boolean"); break;
-        case 'L': {
-            printf("ref %.*s", length - 2, ptr + 1);
-            ptr += length;
-        } break;
-        case '[': {
-            parse(ptr + 1, length - 1);
-            printf("[]");
-        } break;
-        default:
-            printf("unk char - %c", *ptr);
-            assert(false);
-        }
-    };
-
-    parse(desc, length);
-}
 
 int main()
 {
     ClassPool classPool;
-    classPool.addToClassPath("C:/Users/Konstanty/Desktop/gothic3the_uste7l3z"); // TODO(Kostu): temp
-    classPool.addToClassPath("C:/Users/Konstanty/Desktop/midp2.0fcs/classes"); // TODO(Kostu): temp
+    classPool.addToClassPath("../../../misc/gothic3thebeginning"); // TODO(Kostu): temp
+    classPool.addToClassPath("../../../misc/classes"); // TODO(Kostu): temp
     
     classPool.loadClass("java/lang/Object");
     u32 HGClassIndex =  classPool.loadClass("HG");

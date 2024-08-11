@@ -1,6 +1,9 @@
 #pragma once
 #include "types.hpp"
 
+#include <unordered_map>
+#include <string>
+
 constexpr u32 InvalidClassIndex = -1;
 
 union ConstantPoolEntry
@@ -9,13 +12,21 @@ union ConstantPoolEntry
         u16 symbolicRef1;
         u16 symbolicRef2;
     };
-    u32 classPoolIndex;
+    u32 index;
 };
 static_assert(sizeof(ConstantPoolEntry) == 4);
 
 struct Field
 {
     u16 accessFlags;
+    u16 nameIndex;
+    u16 descriptorIndex;
+};
+
+union Value
+{
+    u32 integer;
+    bool boolean;
 };
 
 class ClassFile;
@@ -25,18 +36,18 @@ class ClassPool;
 class Class
 {
 public:
-    explicit Class(ClassPool& classPool) noexcept : m_classPoolRef{ classPool } {}
+    Class(ClassPool& classPool, const ClassFile& classFile) noexcept;
     ~Class();
     Class(Class&& other) noexcept;
 
-    // TODO(Kostu): move this to contructor
-    void derive(const ClassFile& classFile);
     void prepare();
 
     Class(const Class&) = delete;
     Class& operator=(const Class&) = delete;
 private:
     ClassPool& m_classPoolRef;
+    const ClassFile* m_classFile = nullptr;
+
     ConstantPoolEntry* m_constantPool = nullptr;
     u16 m_constantPoolSize = 0;
     u32 m_superClassIndex = InvalidClassIndex;
@@ -44,4 +55,6 @@ private:
     u16 m_interfacesSize = 0;
     Field* m_fields = nullptr;
     u16 m_fieldsSize = 0;
+
+    std::unordered_map<std::string, Value> m_staticFields;
 };

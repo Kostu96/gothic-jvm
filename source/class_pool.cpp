@@ -31,8 +31,7 @@ u32 ClassPool::loadClass(std::string_view name)
 
 		ClassFile classFile(filepath.c_str());
 
-		Class c(*this);
-		c.derive(classFile);
+		Class c(*this, classFile);
 
 		m_classes.emplace_back(std::move(c));
 		u32 index = (u32)m_classes.size() - 1;
