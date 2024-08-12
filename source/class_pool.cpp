@@ -1,7 +1,12 @@
 #include "class_pool.hpp"
 #include "class_file.hpp"
+#include "class.hpp"
 
-#include <cassert>
+ClassPool::~ClassPool()
+{
+	for (auto& c : m_classes)
+		delete c;
+}
 
 void ClassPool::addToClassPath(const std::filesystem::path& path)
 {
@@ -29,9 +34,9 @@ u32 ClassPool::loadClass(std::string_view name)
 		}
 		assert(!filepath.empty());
 
-		Class c(*this, filepath.c_str());
+		Class* c = new Class(*this, filepath.c_str());
 
-		m_classes.emplace_back(std::move(c));
+		m_classes.emplace_back(c);
 		u32 index = (u32)m_classes.size() - 1;
 		m_classNameToIndexMap.emplace(name, index);
 

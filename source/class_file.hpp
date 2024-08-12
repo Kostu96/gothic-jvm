@@ -1,7 +1,5 @@
 #pragma once
-#include "types.hpp"
-
-#include <string_view>
+#include "common.hpp"
 
 struct ConstPoolInfo {
     enum class Tag : u8 {

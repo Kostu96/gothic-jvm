@@ -1,8 +1,5 @@
 #pragma once
-#include "types.hpp"
-
-#include <unordered_map>
-#include <string>
+#include "common.hpp"
 
 constexpr u32 InvalidClassIndex = -1;
 
@@ -23,10 +20,12 @@ struct Field
     u16 descriptorIndex;
 };
 
-union Value
+struct Method
 {
-    u32 integer;
-    bool boolean;
+    u16 maxStack;
+    u16 maxLocals;
+    u32 codeLength;
+    u8* codePtr;
 };
 
 class ClassFile;
@@ -38,9 +37,11 @@ class Class
 public:
     Class(ClassPool& classPool, const char* classFilename) noexcept;
     ~Class();
-    Class(Class&& other) noexcept;
+    //Class(Class&& other) noexcept;
 
     void prepare();
+
+    const Method& getMethod(const std::string& name) const { return m_methods.find(name)->second; }
 
     Class(const Class&) = delete;
     Class& operator=(const Class&) = delete;
@@ -57,4 +58,5 @@ private:
     u16 m_fieldsSize = 0;
 
     std::unordered_map<std::string, Value> m_staticFields;
+    std::unordered_map<std::string, Method> m_methods;
 };

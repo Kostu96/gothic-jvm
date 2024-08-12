@@ -10,6 +10,15 @@ using u16 = uint16_t;
 using u32 = uint32_t;
 using u64 = uint64_t;
 
+#include <string>
+#include <string_view>
+#include <vector>
+#include <span>
+#include <unordered_map>
+#include <cassert>
+
+// TEMP //
+
 namespace AccessFlags {
     constexpr u16 PUBLIC = 0x0001;
     constexpr u16 PRIVATE = 0x0002;
@@ -20,3 +29,10 @@ namespace AccessFlags {
     constexpr u16 INTERFACE = 0x0200;
     constexpr u16 ABSTRACT = 0x0400;
 }
+
+union Value
+{
+    u32 integer;
+    bool boolean;
+    void* reference;
+};
