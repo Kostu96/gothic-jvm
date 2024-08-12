@@ -1,16 +1,24 @@
 #pragma once
 #include "common.hpp"
 
+class Class;
+struct Method;
+
 class CallFrame
 {
 public:
-    CallFrame() = default;
+    CallFrame(Class& clazz, const Method& method, std::initializer_list<Value> arguments);
 
-    void pushLocal(Value value) { m_localVariables.push_back(value); }
-
+    void bipush(u8 byte);
+    void iload(u8 index);
     void aload(u8 index);
-    void in
+    void iadd();
+    void getstatic(u16 index);
+    void putstatic(u16 index);
 private:
+    Class& m_class;
+    const Method& m_method;
+
     std::vector<Value> m_localVariables;
     std::vector<Value> m_operandStack;
 };

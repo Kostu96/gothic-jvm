@@ -29,10 +29,12 @@ int main()
 
     std::vector<CallFrame> m_callStack;
 
-    const Method& mainMethod = HelloWorldClass.getMethod("<init>");
+    const Method& mainMethod = HelloWorldClass.getMethod("main");
 
-    CallFrame callFrame;
-    callFrame.pushLocal({ .reference = &helloWorldInsntance });
+    CallFrame callFrame(HelloWorldClass, mainMethod, { { .reference = nullptr } });
+    //callFrame.pushLocal({ .reference = &helloWorldInsntance });
+    /*callFrame.pushLocal({ .integer = 3 });
+    callFrame.pushLocal({ .integer = 5 });*/
 
     m_callStack.push_back(callFrame);
 
@@ -45,6 +47,10 @@ int main()
             printf("iconst_1\n");
             break;
 
+        case OpCode::bipush:
+            m_callStack.back().bipush(mainMethod.codePtr[pc++]);
+            break;
+
         case OpCode::ldc: {
             u8 index = mainMethod.codePtr[pc++];
             printf("ldc %u\n", index);
@@ -54,8 +60,20 @@ int main()
             printf("dup\n");
             break;
 
-        case OpCode::aload_0:
-            m_callStack.back().aload(0);
+        case OpCode::iadd: m_callStack.back().iadd(); break;
+
+        case OpCode::iload_0: m_callStack.back().iload(0); break;
+        case OpCode::iload_1: m_callStack.back().iload(1); break;
+        case OpCode::iload_2: m_callStack.back().iload(2); break;
+        case OpCode::iload_3: m_callStack.back().iload(3); break;
+
+        case OpCode::aload_0: m_callStack.back().aload(0); break;
+        case OpCode::aload_1: m_callStack.back().aload(1); break;
+        case OpCode::aload_2: m_callStack.back().aload(2); break;
+        case OpCode::aload_3: m_callStack.back().aload(3); break;
+
+        case OpCode::ireturn:
+            notReturned = false;
             break;
 
         case OpCode::return_:
@@ -65,12 +83,12 @@ int main()
         case OpCode::getstatic: {
             u16 index = mainMethod.codePtr[pc] << 8 | mainMethod.codePtr[pc + 1];
             pc += 2;
-            printf("getstatic %u\n", index);
+            m_callStack.back().getstatic(index);
         } break;
         case OpCode::putstatic: {
             u16 index = mainMethod.codePtr[pc] << 8 | mainMethod.codePtr[pc + 1];
             pc += 2;
-            printf("putstatic %u\n", index);
+            m_callStack.back().putstatic(index);
         } break;
 
         case OpCode::invokevirtual: {

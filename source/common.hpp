@@ -32,7 +32,7 @@ namespace AccessFlags {
 
 union Value
 {
-    u32 integer;
+    i32 integer;
     bool boolean;
     void* reference;
 };

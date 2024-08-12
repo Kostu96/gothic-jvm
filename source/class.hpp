@@ -37,10 +37,10 @@ class Class
 public:
     Class(ClassPool& classPool, const char* classFilename) noexcept;
     ~Class();
-    //Class(Class&& other) noexcept;
 
     void prepare();
 
+    const ConstantPoolEntry& getConstant(u16 index) const { return m_constantPool[index]; }
     const Method& getMethod(const std::string& name) const { return m_methods.find(name)->second; }
 
     Class(const Class&) = delete;
