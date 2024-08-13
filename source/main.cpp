@@ -13,46 +13,41 @@ int main()
     classPool.addToClassPath("../../../misc/tests"); // TODO(Kostu): temp
     
     classPool.loadClass("java/lang/Object");
-    /*u32 HGClassIndex =  classPool.loadClass("HG");
+    u32 HGClassIndex =  classPool.loadClass("HG");
     Class& HGClass = classPool.getClass(HGClassIndex);
-    HGClass.prepare();*/
+    HGClass.prepare();
 
-    u32 HelloWorldClassIndex = classPool.loadClass("HelloWorld");
+    /*u32 HelloWorldClassIndex = classPool.loadClass("HelloWorld");
     Class& HelloWorldClass = classPool.getClass(HelloWorldClassIndex);
-    HelloWorldClass.prepare();
+    HelloWorldClass.prepare();*/
 
     struct Instance {
         Class& classRef;
     };
 
-    Instance helloWorldInsntance{ HelloWorldClass };
+    Instance helloWorldInsntance{ HGClass };
 
     std::vector<CallFrame> m_callStack;
 
-    const Method& mainMethod = HelloWorldClass.getMethod("main");
+    const Method& mainMethod = HGClass.getMethod("<init>");
 
-    CallFrame callFrame(HelloWorldClass, mainMethod, { { .reference = nullptr } });
+    CallFrame callFrame(HGClass, mainMethod, { { .reference = &helloWorldInsntance } });
     //callFrame.pushLocal({ .reference = &helloWorldInsntance });
     /*callFrame.pushLocal({ .integer = 3 });
     callFrame.pushLocal({ .integer = 5 });*/
 
     m_callStack.push_back(callFrame);
 
-    u32 pc = 0;
     bool notReturned = true;
     while (notReturned) {
-        switch (mainMethod.codePtr[pc++])
+        switch (m_callStack.back().nextU8())
         {
-        case OpCode::iconst_1:
-            printf("iconst_1\n");
-            break;
+        case OpCode::iconst_1: printf("iconst_1\n"); break;
 
-        case OpCode::bipush:
-            m_callStack.back().bipush(mainMethod.codePtr[pc++]);
-            break;
+        case OpCode::bipush: m_callStack.back().bipush(m_callStack.back().nextU8()); break;
 
         case OpCode::ldc: {
-            u8 index = mainMethod.codePtr[pc++];
+            u8 index = m_callStack.back().nextU8();
             printf("ldc %u\n", index);
         } break;
 
@@ -81,46 +76,40 @@ int main()
             notReturned = false;
             break;
         case OpCode::getstatic: {
-            u16 index = mainMethod.codePtr[pc] << 8 | mainMethod.codePtr[pc + 1];
-            pc += 2;
+            u16 index = m_callStack.back().nextU16();
             m_callStack.back().getstatic(index);
         } break;
         case OpCode::putstatic: {
-            u16 index = mainMethod.codePtr[pc] << 8 | mainMethod.codePtr[pc + 1];
-            pc += 2;
+            u16 index = m_callStack.back().nextU16();
             m_callStack.back().putstatic(index);
         } break;
 
         case OpCode::invokevirtual: {
-            u16 index = mainMethod.codePtr[pc] << 8 | mainMethod.codePtr[pc + 1];
-            pc += 2;
+            u16 index = m_callStack.back().nextU16();
             printf("invokevirtual %u\n", index);
         } break;
         case OpCode::invokespecial: {
-            u16 index = mainMethod.codePtr[pc] << 8 | mainMethod.codePtr[pc + 1];
-            pc += 2;
+            u16 index = m_callStack.back().nextU16();
+            auto c = m_callStack.back().getCurrentClass().getConstant(index);
             printf("invokespecial %u\n", index);
         } break;
         case OpCode::invokestatic: {
-            u16 index = mainMethod.codePtr[pc] << 8 | mainMethod.codePtr[pc + 1];
-            pc += 2;
+            u16 index = m_callStack.back().nextU16();
             printf("invokestatic %u\n", index);
         } break;
 
         case OpCode::new_: {
-            u16 index = mainMethod.codePtr[pc] << 8 | mainMethod.codePtr[pc + 1];
-            pc += 2;
+            u16 index = m_callStack.back().nextU16();
             printf("new %u\n", index);
         } break;
 
         case OpCode::ifnonnull: {
-            i16 offset = mainMethod.codePtr[pc] << 8 | mainMethod.codePtr[pc + 1];
-            pc += 2;
+            i16 offset = m_callStack.back().nextU16();
             printf("ifnonnull %d\n", offset);
         } break;
 
         default:
-            printf("Unknown opcode: 0x%X\n", mainMethod.codePtr[pc - 1]);
+            printf("Unknown opcode: 0x%X\n", m_callStack.back().prevU8());
             assert(false);
         }
     }

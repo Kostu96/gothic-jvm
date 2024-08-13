@@ -1,11 +1,28 @@
 #include "call_frame.hpp"
 #include "class.hpp"
 
-CallFrame::CallFrame(Class& clazz, const Method& method, std::initializer_list<Value> arguments) :
-    m_class{ clazz },
+CallFrame::CallFrame(Class& class_, const Method& method, std::initializer_list<Value> arguments) :
+    m_class{ class_ },
     m_method{ method },
     m_localVariables{ arguments }
 {}
+
+u8 CallFrame::prevU8() const
+{
+    return m_method.codePtr[m_pc - 1];
+}
+
+u8 CallFrame::nextU8()
+{
+    return m_method.codePtr[m_pc++];
+}
+
+u16 CallFrame::nextU16()
+{
+    u16 value = m_method.codePtr[m_pc] << 8 | m_method.codePtr[m_pc + 1];
+    m_pc += 2;
+    return value;
+}
 
 void CallFrame::bipush(u8 byte)
 {
