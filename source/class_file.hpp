@@ -1,88 +1,121 @@
 #pragma once
-#include "common.hpp"
+#include <cstdint>
+#include <string>
+#include <variant>
+#include <vector>
 
-struct ConstPoolInfo {
-    enum class Tag : u8 {
-        Utf8 = 1,
-        Integer = 3,
-        Float = 4,
-        Long = 5,
-        Double = 6,
-        Class = 7,
-        String = 8,
-        FieldRef = 9,
-        MethodRef = 10,
-        InterfaceMethodRef = 11,
-        NameAndType = 12
-    };
+struct Utf8Info {
+    std::string value;
+};
 
-    union {
-        struct {
-            const char* ptr;
-            u16 length;
-        } utf8;
-        struct {
-            u16 index1;
-            u16 index2;
-        } doubleIndex;
-        u64 longInteger;
-        u32 integer;
-        u16 u16Index;
-    };
-    Tag tag;
+struct IntegerInfo {
+    int32_t value;
+};
+
+struct LongInfo {
+    int64_t value;
+};
+
+struct ClassInfo {
+    uint16_t name_index;
+};
+
+struct StringInfo {
+    uint16_t string_index;
+};
+
+struct FieldRefInfo {
+    uint16_t class_index;
+    uint16_t name_and_type_index;
+};
+
+struct MethodRefInfo {
+    uint16_t class_index;
+    uint16_t name_and_type_index;
+};
+
+struct InterfaceMethodRefInfo {
+    uint16_t class_index;
+    uint16_t name_and_type_index;
+};
+
+struct NameAndTypeInfo {
+    uint16_t name_index;
+    uint16_t descriptor_index;
+};
+
+using ConstantPoolEntry = std::variant<
+    std::monostate,
+    Utf8Info,
+    IntegerInfo,
+    LongInfo,
+    ClassInfo,
+    StringInfo,
+    FieldRefInfo,
+    MethodRefInfo,
+    InterfaceMethodRefInfo,
+    NameAndTypeInfo
+>;
+
+struct ExceptionTableEntry {
+    uint16_t start_pc;
+    uint16_t end_pc;
+    uint16_t handler_pc;
+    uint16_t catch_type;
+};
+
+struct CodeAttributeInfo {
+    uint16_t max_stack;
+    uint16_t max_locals;
+    std::vector<std::byte> code;
+    std::vector<ExceptionTableEntry> exception_table;
+    std::vector<std::byte> attributes; // Placeholder for nested attributes
 };
 
 struct AttributeInfo {
-    u8* info;
-    u32 length;
-    u16 nameIndex;
+    uint16_t name_index;
+    std::variant<std::vector<std::byte>, CodeAttributeInfo> info;
 };
 
 struct FieldAndMethodInfo {
-    u16 accessFlags;
-    u16 nameIndex;
-    u16 descriptorIndex;
-    u16 attributeCount;
-    AttributeInfo* attributes;
+    uint16_t access_flags;
+    uint16_t name_index;
+    uint16_t descriptor_index;
+    std::vector<AttributeInfo> attributes;
 };
 
-class Class;
-
-// Binary representation of a class
-// https://docs.oracle.com/javase/specs/jvms/se6/html/ClassFile.doc.html
 class ClassFile
 {
 public:
 	explicit ClassFile(const char* path);
-	~ClassFile();
 
-    std::string_view getClassName(u16 index) const;
+    std::string_view get_class_name(uint16_t index) const;
+    std::string_view get_this_name() const;
+    std::string_view get_super_name() const;
 
-	// Print class representation to stdout (for debug)
-	void print() const;
+    uint16_t get_methods_count() const { return static_cast<uint16_t>(methods_.size()); }
+    std::string_view get_method_name(uint16_t index) const;
+    std::string_view get_method_descriptor(uint16_t index) const;
+    uint16_t get_method_access_flags(uint16_t index) const;
+    uint16_t get_method_attributes_count(uint16_t method_index) const;
+    std::string_view get_method_attribute_name(uint16_t method_index, uint16_t attribute_index) const;
+    const CodeAttributeInfo* get_method_attribute_code(uint16_t method_index, uint16_t attribute_index) const;
 
     ClassFile(const ClassFile&) = delete;
     ClassFile& operator=(const ClassFile&) = delete;
 private:
-    const char* m_filename = nullptr;
-	u8* m_rawFileBuffer = nullptr;
+    std::string_view get_utf8(uint16_t index) const;
 
-    u32 m_magic;
-    u16 m_verMinor;
-    u16 m_verMajor;
-    u16 m_constantPoolCount;
-    ConstPoolInfo* m_constantPool = nullptr;
-    u16 m_accessFlags;
-    u16 m_thisClass;
-    u16 m_superClass;
-    u16 m_interfacesCount;
-    u16* m_interfaces = nullptr;
-    u16 m_fieldsCount;
-    FieldAndMethodInfo* m_fields = nullptr;
-    u16 m_methodsCount;
-    FieldAndMethodInfo* m_methods = nullptr;
-    u16 m_attributesCount;
-    AttributeInfo* m_attributes = nullptr;
+    uint16_t version_minor_;
+    uint16_t version_major_;
+    std::vector<ConstantPoolEntry> constant_pool_;
+    uint16_t access_flags_;
+    uint16_t this_class_;
+    uint16_t super_class_;
+    std::vector<uint16_t> interfaces_;
+    std::vector<FieldAndMethodInfo> fields_;
+    std::vector<FieldAndMethodInfo> methods_;
 
-    friend class Class;
+    /*u16 m_attributesCount;
+    AttributeInfo* m_attributes = nullptr;*/
 };

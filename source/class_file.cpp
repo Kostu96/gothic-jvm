@@ -1,230 +1,254 @@
 #include "class_file.hpp"
-#include "file_io.hpp"
 
-#include <cassert>
-#include <cstdio>
-#include <cstdlib>
+#include "utils/binary_reader.hpp"
 
-ClassFile::ClassFile(const char* path)
-{
-    m_filename = path;
+#include <fstream>
 
-    size_t fileSize;
-    if (!getFileSize(path, fileSize)) {
-        printf("Could not get file size of %s\n", path);
-        abort();
-    }
-    m_rawFileBuffer = new u8[fileSize];
-    if (!readFile(path, m_rawFileBuffer, fileSize)) {
-        printf("Could not read file %s\n", path);
-        abort();
+namespace {
+
+std::vector<std::byte> read_file(const char* path) {
+    std::ifstream file(path, std::ios::binary);
+
+    if (!file) {
+        throw std::runtime_error("Failed to open file: " + std::string(path));
     }
 
-    u8* ptr = m_rawFileBuffer;
+    file.seekg(0, std::ios::end);
+    auto length = file.tellg();
+    file.seekg(0, std::ios::beg);
 
-    m_magic = parseU32BigEndian(ptr);
-    m_verMinor = parseU16BigEndian(ptr);
-    m_verMajor = parseU16BigEndian(ptr);
+    std::vector<std::byte> buffer(length);
+    file.read(reinterpret_cast<char*>(buffer.data()), length);
 
-    m_constantPoolCount = parseU16BigEndian(ptr);
-    m_constantPool = new ConstPoolInfo[m_constantPoolCount - 1];
+    file.close();
+    return buffer;
+}
 
-    for (u16 i = 0; i < m_constantPoolCount - 1; i++)
-    {
-        m_constantPool[i].tag = (ConstPoolInfo::Tag)parseU8(ptr);
-        switch (m_constantPool[i].tag) {
-        case ConstPoolInfo::Tag::Utf8: {
-            m_constantPool[i].utf8.length = parseU16BigEndian(ptr);
-            m_constantPool[i].utf8.ptr = (const char*)ptr;
-            ptr += m_constantPool[i].utf8.length;
+}
+
+ClassFile::ClassFile(const char* path) {
+    auto buffer = read_file(path);
+    util::BinaryReader reader(buffer);
+
+    auto magic = reader.read_u32();
+    if (magic != 0xCAFEBABE) {
+        throw std::runtime_error("Invalid class file: " + std::string(path));
+    }
+
+    version_minor_ = reader.read_u16();
+    version_major_ = reader.read_u16();
+
+    auto constant_pool_count = reader.read_u16();
+    constant_pool_.resize(constant_pool_count);
+    for (uint16_t i = 1; i < constant_pool_count; ++i) {
+        uint8_t tag = reader.read_u8();
+        switch (tag) {
+        case 1: { // Utf8
+            uint16_t length = reader.read_u16();
+            constant_pool_[i] = Utf8Info{ reader.read_string(length) };
         } break;
-        case ConstPoolInfo::Tag::Integer: {
-            m_constantPool[i].integer = parseU32BigEndian(ptr);
+        case 3: { // Integer
+            constant_pool_[i] = IntegerInfo{ static_cast<int32_t>(reader.read_u32()) };
         } break;
-        case ConstPoolInfo::Tag::Long: {
-            m_constantPool[i].longInteger = parseU64BigEndian(ptr);
-            i++;
+        case 5: { // Long
+            uint32_t high_bytes = reader.read_u32();
+            uint32_t low_bytes = reader.read_u32();
+            constant_pool_[i] = LongInfo{ (static_cast<int64_t>(high_bytes) << 32) | low_bytes };
+            ++i; // Long takes up two entries in the constant pool
         } break;
-        case ConstPoolInfo::Tag::Class:
-        case ConstPoolInfo::Tag::String: {
-            m_constantPool[i].u16Index = parseU16BigEndian(ptr);
+        case 7: { // Class
+            constant_pool_[i] = ClassInfo{ reader.read_u16() };
         } break;
-        case ConstPoolInfo::Tag::FieldRef:
-        case ConstPoolInfo::Tag::MethodRef:
-        case ConstPoolInfo::Tag::InterfaceMethodRef:
-        case ConstPoolInfo::Tag::NameAndType: {
-            m_constantPool[i].doubleIndex.index1 = parseU16BigEndian(ptr);
-            m_constantPool[i].doubleIndex.index2 = parseU16BigEndian(ptr);
+        case 8: { // String
+            constant_pool_[i] = StringInfo{ reader.read_u16() };
+        } break;
+        case 9: { // FieldRef
+            uint16_t class_index = reader.read_u16();
+            uint16_t name_and_type_index = reader.read_u16();
+            constant_pool_[i] = FieldRefInfo{ class_index, name_and_type_index };
+        } break;
+        case 10: { // MethodRef
+            uint16_t class_index = reader.read_u16();
+            uint16_t name_and_type_index = reader.read_u16();
+            constant_pool_[i] = MethodRefInfo{ class_index, name_and_type_index };
+        } break;
+        case 11: { // InterfaceMethodRef
+            uint16_t class_index = reader.read_u16();
+            uint16_t name_and_type_index = reader.read_u16();
+            constant_pool_[i] = InterfaceMethodRefInfo{ class_index, name_and_type_index };
+        } break;
+        case 12: { // NameAndType
+            uint16_t name_index = reader.read_u16();
+            uint16_t descriptor_index = reader.read_u16();
+            constant_pool_[i] = NameAndTypeInfo{ name_index, descriptor_index };
         } break;
         default:
-            assert(false);
+            throw std::runtime_error("Unsupported constant pool tag: " + std::to_string(tag));
         }
     }
 
-    m_accessFlags = parseU16BigEndian(ptr);
-    m_thisClass = parseU16BigEndian(ptr);
-    m_superClass = parseU16BigEndian(ptr);
+    access_flags_ = reader.read_u16();
+    this_class_ = reader.read_u16();
+    super_class_ = reader.read_u16();
 
-    m_interfacesCount = parseU16BigEndian(ptr);
-    m_interfaces = new u16[m_interfacesCount];
-    for (u16 i = 0; i < m_interfacesCount; i++)
-    {
-        m_interfaces[i] = parseU16BigEndian(ptr);
+    auto interfaces_count = reader.read_u16();
+    interfaces_.resize(interfaces_count);
+    for (uint16_t i = 0; i < interfaces_count; ++i) {
+        interfaces_[i] = reader.read_u16();
     }
 
-    m_fieldsCount = parseU16BigEndian(ptr);
-    m_fields = new FieldAndMethodInfo[m_fieldsCount];
-    for (u16 i = 0; i < m_fieldsCount; i++)
-    {
-        m_fields[i].accessFlags = parseU16BigEndian(ptr);
-        m_fields[i].nameIndex = parseU16BigEndian(ptr);
-        m_fields[i].descriptorIndex = parseU16BigEndian(ptr);
-        m_fields[i].attributeCount = parseU16BigEndian(ptr);
-        m_fields[i].attributes = m_fields[i].attributeCount ? new AttributeInfo[m_fields[i].attributeCount] : nullptr;
+    auto read_attributes = [this, &reader]() {
+        std::vector<AttributeInfo> attributes;
+        uint16_t count = reader.read_u16();
+        attributes.resize(count);
+        for (uint16_t j = 0; j < count; ++j) {
+            attributes[j].name_index = reader.read_u16();
+            uint32_t length = reader.read_u32();
 
-        for (u16 j = 0; j < m_fields[i].attributeCount; j++)
-        {
-            m_fields[i].attributes[j].nameIndex = parseU16BigEndian(ptr);
-            m_fields[i].attributes[j].length = parseU32BigEndian(ptr);
-            m_fields[i].attributes[j].info = ptr; ptr += m_fields[i].attributes[j].length;
+            if (get_utf8(attributes[j].name_index) == "Code") {
+                CodeAttributeInfo code_info;
+                code_info.max_stack = reader.read_u16();
+                code_info.max_locals = reader.read_u16();
+                uint32_t code_length = reader.read_u32();
+                code_info.code = reader.read_bytes(code_length);
+                uint16_t exception_table_length = reader.read_u16();
+                code_info.exception_table.resize(exception_table_length);
+                for (uint16_t k = 0; k < exception_table_length; ++k) {
+                    code_info.exception_table[k].start_pc = reader.read_u16();
+                    code_info.exception_table[k].end_pc = reader.read_u16();
+                    code_info.exception_table[k].handler_pc = reader.read_u16();
+                    code_info.exception_table[k].catch_type = reader.read_u16();
+                }
+                uint32_t consumed = 2u + 2u + 4u + code_length + 2u + exception_table_length * 8u;
+                if (consumed > length) {
+                    throw std::runtime_error("ClassFile: malformed Code attribute (length underflow)");
+                }
+                code_info.attributes = reader.read_bytes(length - consumed);
+                attributes[j].info = std::move(code_info);
+            }
+            else {
+                attributes[j].info = reader.read_bytes(length);
+            }
         }
+        return attributes;
+    };
+
+    auto fields_count = reader.read_u16();
+    fields_.resize(fields_count);
+    for (uint16_t i = 0; i < fields_count; ++i) {
+        fields_[i].access_flags = reader.read_u16();
+        fields_[i].name_index = reader.read_u16();
+        fields_[i].descriptor_index = reader.read_u16();
+        fields_[i].attributes = read_attributes();
     }
 
-    m_methodsCount = parseU16BigEndian(ptr);
-    m_methods = new FieldAndMethodInfo[m_methodsCount];
-    for (u16 i = 0; i < m_methodsCount; i++)
-    {
-        m_methods[i].accessFlags = parseU16BigEndian(ptr); 
-        m_methods[i].nameIndex = parseU16BigEndian(ptr);
-        m_methods[i].descriptorIndex = parseU16BigEndian(ptr);
-        m_methods[i].attributeCount = parseU16BigEndian(ptr);
-        m_methods[i].attributes = m_methods[i].attributeCount ? new AttributeInfo[m_methods[i].attributeCount] : nullptr;
-
-        for (u16 j = 0; j < m_methods[i].attributeCount; j++)
-        {
-            m_methods[i].attributes[j].nameIndex = parseU16BigEndian(ptr);
-            m_methods[i].attributes[j].length = parseU32BigEndian(ptr);
-            m_methods[i].attributes[j].info = ptr; ptr += m_methods[i].attributes[j].length;
-        }
+    auto methods_count = reader.read_u16();
+    methods_.resize(methods_count);
+    for (uint16_t i = 0; i < methods_count; ++i) {
+        methods_[i].access_flags = reader.read_u16();
+        methods_[i].name_index = reader.read_u16();
+        methods_[i].descriptor_index = reader.read_u16();
+        methods_[i].attributes = read_attributes();
     }
 
-    m_attributesCount = parseU16BigEndian(ptr);
+    /*m_attributesCount = parseU16BigEndian(ptr);
     m_attributes = new AttributeInfo[m_attributesCount];
     for (u16 i = 0; i < m_attributesCount; i++)
     {
         m_attributes[i].nameIndex = parseU16BigEndian(ptr);
         m_attributes[i].length = parseU32BigEndian(ptr);
         m_attributes[i].info = ptr; ptr += m_attributes[i].length;
-    }
+    }*/
 }
 
-ClassFile::~ClassFile()
-{
-    delete[] m_attributes;
-    for (u16 i = 0; i < m_methodsCount; i++)
-        delete[] m_methods[i].attributes;
-    delete[] m_methods;
-    for (u16 i = 0; i < m_fieldsCount; i++)
-        delete[] m_fields[i].attributes;
-    delete[] m_fields;
-    delete[] m_interfaces;
-    delete[] m_constantPool;
-    delete[] m_rawFileBuffer;
+std::string_view ClassFile::get_utf8(uint16_t index) const {
+    if (index == 0 || index >= constant_pool_.size()) {
+        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(index));
+    }
+
+    const auto* utf8_info = std::get_if<Utf8Info>(&constant_pool_[index]);
+    if (!utf8_info) {
+        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(index) + " is not a Utf8");
+    }
+
+    return utf8_info->value;
 }
 
-std::string_view ClassFile::getClassName(u16 index) const
-{
-    auto& classInfo = m_constantPool[index - 1];
-    assert(classInfo.tag == ConstPoolInfo::Tag::Class);
-    auto& utf8Info = m_constantPool[classInfo.u16Index - 1];
-    assert(utf8Info.tag == ConstPoolInfo::Tag::Utf8);
+std::string_view ClassFile::get_class_name(uint16_t index) const {
+    if (index == 0 || index >= constant_pool_.size()) {
+        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(index));
+    }
 
-    return { utf8Info.utf8.ptr, utf8Info.utf8.length };
+    const auto* class_info = std::get_if<ClassInfo>(&constant_pool_[index]);
+    if (!class_info) {
+        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(index) + " is not a Class");
+    }
+
+    return get_utf8(class_info->name_index);
 }
 
-void ClassFile::print() const
-{
-    printf("ClassFile: %s\n", m_filename);
-    printf(" magic: 0x%X\n", m_magic);
-    printf(" version: %u.%u\n", m_verMajor, m_verMinor);
-    printf(" constant_pool_count: %u\n", m_constantPoolCount);
-    if (m_constantPoolCount - 1) {
-        printf(" constant_pool:\n");
-        printf("  idx %-12s value\n", "type");
+std::string_view ClassFile::get_this_name() const {
+    return get_class_name(this_class_);
+}
+
+std::string_view ClassFile::get_super_name() const {
+    return get_class_name(super_class_);
+}
+
+std::string_view ClassFile::get_method_name(uint16_t index) const {
+    if (index >= methods_.size()) {
+        throw std::out_of_range("ClassFile: invalid method index: " + std::to_string(index));
     }
-    for (u16 i = 0; i < m_constantPoolCount - 1; i++)
-    {
-        printf("  %2u: ", i + 1);
-        switch (m_constantPool[i].tag) {
-        case ConstPoolInfo::Tag::Utf8: 
-            printf("%-12s %.*s\n", "Utf8", m_constantPool[i].utf8.length, m_constantPool[i].utf8.ptr);
-            break;
-        case ConstPoolInfo::Tag::Integer:
-            printf("%-12s %d\n", "Integer", m_constantPool[i].integer);
-            break;
-        case ConstPoolInfo::Tag::Long:
-            printf("%-12s %lld\n", "Long", m_constantPool[i].longInteger);
-            i++;
-            break;
-        case ConstPoolInfo::Tag::Class:
-            printf("%-12s %u\n", "Class", m_constantPool[i].u16Index);
-            break;
-        case ConstPoolInfo::Tag::String:
-            printf("%-12s %u\n", "String", m_constantPool[i].u16Index);
-            break;
-        case ConstPoolInfo::Tag::FieldRef:
-            printf("%-12s %2u %2u\n", "FieldRef", m_constantPool[i].doubleIndex.index1, m_constantPool[i].doubleIndex.index2);
-            break;
-        case ConstPoolInfo::Tag::MethodRef:
-            printf("%-12s %2u %2u\n", "MethodRef", m_constantPool[i].doubleIndex.index1, m_constantPool[i].doubleIndex.index2);
-            break;
-        case ConstPoolInfo::Tag::InterfaceMethodRef:
-            printf("%-12s %2u %2u\n", "InterfaceMethodRef", m_constantPool[i].doubleIndex.index1, m_constantPool[i].doubleIndex.index2);
-            break;
-        case ConstPoolInfo::Tag::NameAndType:
-            printf("%-12s %2u %2u\n", "NameAndType", m_constantPool[i].doubleIndex.index1, m_constantPool[i].doubleIndex.index2);
-            break;
-        default:
-            assert(false);
-        }
+
+    return get_utf8(methods_[index].name_index);
+}
+
+std::string_view ClassFile::get_method_descriptor(uint16_t index) const {
+    if (index >= methods_.size()) {
+        throw std::out_of_range("ClassFile: invalid method index: " + std::to_string(index));
     }
-    printf(" access_flags: 0x%X\n", m_accessFlags);
-    printf(" this_class: %u\n", m_thisClass);
-    printf(" super_class: %u\n", m_superClass);
-    printf(" interfaces_count: %u\n", m_interfacesCount);
-    if (m_interfacesCount) {
-        printf(" interfaces:\n");
-        printf("  idx value\n");
+
+    return get_utf8(methods_[index].descriptor_index);
+}
+
+uint16_t ClassFile::get_method_access_flags(uint16_t index) const {
+    if (index >= methods_.size()) {
+        throw std::out_of_range("ClassFile: invalid method index: " + std::to_string(index));
     }
-    for (u16 i = 0; i < m_interfacesCount; i++)
-    {
-        printf("  %2u: %u\n", i, m_interfaces[i]);
+
+    return methods_[index].access_flags;
+}
+
+uint16_t ClassFile::get_method_attributes_count(uint16_t method_index) const {
+    if (method_index >= methods_.size()) {
+        throw std::out_of_range("ClassFile: invalid method index: " + std::to_string(method_index));
     }
-    printf(" fields_count: %u\n", m_fieldsCount);
-    if (m_fieldsCount) {
-        printf(" fields:\n");
-        printf("  idx name desc attribs\n");
+
+    return static_cast<uint16_t>(methods_[method_index].attributes.size());
+}
+
+std::string_view ClassFile::get_method_attribute_name(uint16_t method_index, uint16_t attribute_index) const {
+    if (method_index >= methods_.size()) {
+        throw std::out_of_range("ClassFile: invalid method index: " + std::to_string(method_index));
     }
-    for (u16 i = 0; i < m_fieldsCount; i++)
-    {
-        printf("  %2u: %u   %u   %u\n", i, m_fields[i].nameIndex, m_fields[i].descriptorIndex, m_fields[i].attributeCount);
+
+    const auto& attributes = methods_[method_index].attributes;
+    if (attribute_index >= attributes.size()) {
+        throw std::out_of_range("ClassFile: invalid attribute index: " + std::to_string(attribute_index));
     }
-    printf(" methods_count: %u\n", m_methodsCount);
-    if (m_methodsCount) {
-        printf(" methods:\n");
-        printf("  idx name desc attribs\n");
+
+    return get_utf8(attributes[attribute_index].name_index);
+}
+
+const CodeAttributeInfo* ClassFile::get_method_attribute_code(uint16_t method_index, uint16_t attribute_index) const {
+    if (method_index >= methods_.size()) {
+        throw std::out_of_range("ClassFile: invalid method index: " + std::to_string(method_index));
     }
-    for (u16 i = 0; i < m_methodsCount; i++)
-    {
-        printf("  %2u: %u   %u   %u\n", i, m_methods[i].nameIndex, m_methods[i].descriptorIndex, m_methods[i].attributeCount);
+
+    const auto& attributes = methods_[method_index].attributes;
+    if (attribute_index >= attributes.size()) {
+        throw std::out_of_range("ClassFile: invalid attribute index: " + std::to_string(attribute_index));
     }
-    printf(" attributes_count: %u\n", m_attributesCount);
-    if (m_attributesCount) {
-        printf(" attributes:\n");
-        printf("  idx value\n");
-    }
-    for (u16 i = 0; i < m_attributesCount; i++)
-    {
-        printf("  %2u: %u\n", i, m_attributes[i].nameIndex);
-    }
+
+    return std::get_if<CodeAttributeInfo>(&attributes[attribute_index].info);
 }

@@ -33,6 +33,7 @@ namespace AccessFlags {
 union Value
 {
     i32 integer;
-    bool boolean;
+    i64 longInteger;
     void* reference;
 };
+static_assert(sizeof(Value) == 8);

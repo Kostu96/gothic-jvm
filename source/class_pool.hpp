@@ -4,6 +4,7 @@
 #include <filesystem>
 
 class Class;
+class VM;
 
 class ClassPool
 {
@@ -13,11 +14,8 @@ public:
 
 	void addToClassPath(const std::filesystem::path& path);
 
-	u32 loadClass(std::string_view name);
-
-	Class& getClass(u32 index) { return *m_classes[index]; }
+	Class* loadClass(VM& vm, std::string_view name);
 private:
 	std::vector<std::filesystem::path> m_classPath;
-	std::vector<Class*> m_classes;
-	std::unordered_map<std::string, u32> m_classNameToIndexMap;
+	std::unordered_map<std::string, Class*> m_classes;
 };
