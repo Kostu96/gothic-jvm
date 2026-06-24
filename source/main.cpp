@@ -5,6 +5,9 @@
 #include <filesystem>
 #include <print>
 
+/*
+ * args [main_class] [class_path_entry]...
+ */
 int main(int argc, char** argv) {
     try {
         const char* main_class = argc >= 2 ? argv[1] : "gothic3thebeginning/HG";

@@ -7,7 +7,6 @@
 class Class;
 struct Method;
 
-// Activation record for a single in-flight Java method invocation.
 class Frame {
 public:
     Frame(Class* owner, const Method* method);
@@ -23,6 +22,12 @@ public:
 
     size_t pc() const noexcept { return pc_; }
     void set_pc(size_t pc) noexcept { pc_ = pc; }
+
+    std::byte pop_code_byte();
+
+    void push_stack(Value value) { operand_stack_.push_back(value); }
+    Value pop_stack();
+    Value peek_stack() const { return operand_stack_.back(); }
 
     Frame(const Frame&) = delete;
     Frame& operator=(const Frame&) = delete;

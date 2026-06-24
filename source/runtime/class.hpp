@@ -20,7 +20,6 @@ struct Method {
     std::span<const ExceptionTableEntry> exception_table;
 };
 
-// JVM spec §5.5 class initialization state.
 enum class ClassInitState {
     Loaded,        // parsed, but <clinit> not yet started
     Initializing,  // <clinit> currently running on some thread

@@ -21,22 +21,49 @@ std::optional<Value> Interpreter::execute(Class* owner,
 }
 
 std::optional<Value> Interpreter::run(Frame& frame) {
-    const auto code = frame.method()->code;
-
-    while (frame.pc() < code.size()) {
-        const auto opcode = std::to_integer<uint8_t>(code[frame.pc()]);
-        frame.set_pc(frame.pc() + 1);
+    while (frame.pc() < frame.method()->code.size()) {
+        const auto opcode = std::to_integer<uint8_t>(frame.pop_code_byte());
 
         switch (opcode) {
+        case 0x03: { // iconst_0
+            frame.push_stack(static_cast<int32_t>(0));
+        } break;
+        case 0x04: { // iconst_1
+            frame.push_stack(static_cast<int32_t>(1));
+        } break;
+        case 0x05: { // iconst_2
+            frame.push_stack(static_cast<int32_t>(2));
+        } break;
+        case 0x06: { // iconst_3
+            frame.push_stack(static_cast<int32_t>(3));
+        } break;
+        case 0x07: { // iconst_4
+            frame.push_stack(static_cast<int32_t>(4));
+        } break;
+        case 0x08: { // iconst_5
+            frame.push_stack(static_cast<int32_t>(5));
+        } break;
+        case 0x10: { // bipush
+            auto byte = std::to_integer<uint8_t>(frame.pop_code_byte());
+            frame.push_stack(static_cast<int32_t>(byte));
+        } break;
+        case 0x55: { // castore
+            auto value = frame.pop_stack();
+            auto index = frame.pop_stack();
+            auto reference = frame.pop_stack();
+            // TODO(Kostu96): store into the array under reference
+        } break;
+        case 0x59: { // dup
+            frame.push_stack(frame.peek_stack());
+        } break;
         case 0xB1: // return
             return std::nullopt;
-
-        // TODO: add opcode implementations here. Each case should:
-        //   1. Read any inline operands and advance frame.pc() past them.
-        //   2. Manipulate frame.operand_stack() / frame.locals().
-        //   3. For invocations / static field access, call back into vm_
-        //      to load+initialize the target class.
-
+        case 0xBC: { // newarray
+            auto count = frame.pop_stack();
+            auto type = std::to_integer<uint8_t>(frame.pop_code_byte());
+            // TODO(Kostu96): create new array on the heap and push reference onto the stack
+            frame.push_stack(nullptr); // temp
+        } break;
         default:
             throw std::runtime_error(std::format(
                 "Interpreter: unimplemented opcode 0x{:02X} at pc={} in {}.{}{}",

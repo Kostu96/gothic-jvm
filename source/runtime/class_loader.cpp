@@ -4,8 +4,6 @@
 
 #include <stdexcept>
 
-// Defined out-of-line so the std::unique_ptr<Class> destructors in `loaded_`
-// only need to be instantiated in this TU, where Class is a complete type.
 ClassLoader::ClassLoader() = default;
 ClassLoader::~ClassLoader() = default;
 
