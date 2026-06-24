@@ -6,11 +6,11 @@
 
 namespace {
 
-std::vector<std::byte> read_file(const char* path) {
-    std::ifstream file(path, std::ios::binary);
+std::vector<std::byte> read_file(const char* filename) {
+    std::ifstream file(filename, std::ios::binary);
 
     if (!file) {
-        throw std::runtime_error("Failed to open file: " + std::string(path));
+        throw std::runtime_error("Failed to open file: " + std::string(filename));
     }
 
     file.seekg(0, std::ios::end);
@@ -26,13 +26,13 @@ std::vector<std::byte> read_file(const char* path) {
 
 }
 
-ClassFile::ClassFile(const char* path) {
-    auto buffer = read_file(path);
+ClassFile::ClassFile(const char* filename) {
+    auto buffer = read_file(filename);
     util::BinaryReader reader(buffer);
 
     auto magic = reader.read_u32();
     if (magic != 0xCAFEBABE) {
-        throw std::runtime_error("Invalid class file: " + std::string(path));
+        throw std::runtime_error("Invalid class file: " + std::string(filename));
     }
 
     version_minor_ = reader.read_u16();
@@ -188,11 +188,17 @@ std::string_view ClassFile::get_class_name(uint16_t index) const {
 }
 
 std::string_view ClassFile::get_this_name() const {
-    return get_class_name(this_class_);
+    if (this_name_.empty()) {
+        this_name_ = get_class_name(this_class_);
+    }
+    return this_name_;
 }
 
 std::string_view ClassFile::get_super_name() const {
-    return get_class_name(super_class_);
+    if (super_name_.empty()) {
+        super_name_ = get_class_name(super_class_);
+    }
+    return super_name_;
 }
 
 std::string_view ClassFile::get_method_name(uint16_t index) const {

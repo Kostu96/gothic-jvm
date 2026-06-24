@@ -87,7 +87,7 @@ struct FieldAndMethodInfo {
 class ClassFile
 {
 public:
-	explicit ClassFile(const char* path);
+	explicit ClassFile(const char* filename);
 
     std::string_view get_class_name(uint16_t index) const;
     std::string_view get_this_name() const;
@@ -118,4 +118,8 @@ private:
 
     /*u16 m_attributesCount;
     AttributeInfo* m_attributes = nullptr;*/
+
+    // Cached symbols:
+    mutable std::string_view this_name_;
+    mutable std::string_view super_name_;
 };

@@ -8,6 +8,15 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(APP_LIB_SOURCES
     "source/runtime/class.hpp"
     "source/runtime/class.cpp"
+    "source/runtime/class_loader.hpp"
+    "source/runtime/class_loader.cpp"
+    "source/runtime/frame.hpp"
+    "source/runtime/frame.cpp"
+    "source/runtime/interpreter.hpp"
+    "source/runtime/interpreter.cpp"
+    "source/runtime/value.hpp"
+    "source/runtime/vm.hpp"
+    "source/runtime/vm.cpp"
     "source/utils/binary_reader.cpp"
     "source/utils/binary_reader.hpp"
     "source/class_file.cpp"
@@ -24,7 +33,6 @@ add_executable(app "source/main.cpp")
 target_link_libraries(app PRIVATE app_lib)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/source PREFIX source FILES "source/main.cpp")
 
-# --- Tests ---
 enable_testing()
 
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)

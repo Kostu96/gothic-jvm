@@ -20,6 +20,14 @@ struct Method {
     std::span<const ExceptionTableEntry> exception_table;
 };
 
+// JVM spec §5.5 class initialization state.
+enum class ClassInitState {
+    Loaded,        // parsed, but <clinit> not yet started
+    Initializing,  // <clinit> currently running on some thread
+    Initialized,   // <clinit> completed normally (or class has none)
+    Failed         // <clinit> threw; further use must rethrow NoClassDefFoundError
+};
+
 class Class {
 public:
     explicit Class(const char* filename);
@@ -30,9 +38,13 @@ public:
     std::span<const Method> methods() const noexcept { return methods_; }
     const Method* find_method(std::string_view name, std::string_view descriptor) const noexcept;
 
+    ClassInitState init_state() const noexcept { return init_state_; }
+    void set_init_state(ClassInitState state) noexcept { init_state_ = state; }
+
     Class(const Class&) = delete;
     Class& operator=(const Class&) = delete;
 private:
     ClassFile class_file_;
     std::vector<Method> methods_;
+    ClassInitState init_state_ = ClassInitState::Loaded;
 };
