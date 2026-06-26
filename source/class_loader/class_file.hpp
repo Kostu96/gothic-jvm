@@ -1,8 +1,12 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
+
+struct Field;
+struct Method;
 
 struct Utf8Info {
     std::string value;
@@ -18,20 +22,28 @@ struct LongInfo {
 
 struct ClassInfo {
     uint16_t name_index;
+
+    mutable std::string_view name;
 };
 
 struct StringInfo {
     uint16_t string_index;
+
+    mutable std::string_view name;
 };
 
 struct FieldRefInfo {
     uint16_t class_index;
     uint16_t name_and_type_index;
+
+    mutable Field* field = nullptr;
 };
 
 struct MethodRefInfo {
     uint16_t class_index;
     uint16_t name_and_type_index;
+
+    mutable Method* method = nullptr;
 };
 
 struct InterfaceMethodRefInfo {
@@ -84,6 +96,14 @@ struct FieldAndMethodInfo {
     std::vector<AttributeInfo> attributes;
 };
 
+// A symbolic field reference resolved from a CONSTANT_Fieldref_info entry into
+// its declaring class name, field name, and field descriptor.
+struct FieldRef {
+    std::string_view class_name;
+    std::string_view name;
+    std::string_view descriptor;
+};
+
 class ClassFile
 {
 public:
@@ -93,13 +113,20 @@ public:
     std::string_view get_this_name() const;
     std::string_view get_super_name() const;
 
-    uint16_t get_methods_count() const { return static_cast<uint16_t>(methods_.size()); }
+    uint16_t get_methods_count() const { return static_cast<uint16_t>(methods_info_.size()); }
     std::string_view get_method_name(uint16_t index) const;
     std::string_view get_method_descriptor(uint16_t index) const;
     uint16_t get_method_access_flags(uint16_t index) const;
     uint16_t get_method_attributes_count(uint16_t method_index) const;
     std::string_view get_method_attribute_name(uint16_t method_index, uint16_t attribute_index) const;
     const CodeAttributeInfo* get_method_attribute_code(uint16_t method_index, uint16_t attribute_index) const;
+
+    uint16_t get_fields_count() const { return static_cast<uint16_t>(fields_info_.size()); }
+    std::string_view get_field_name(uint16_t index) const;
+    std::string_view get_field_descriptor(uint16_t index) const;
+    uint16_t get_field_access_flags(uint16_t index) const;
+
+    FieldRef get_field_ref(uint16_t constant_pool_index) const;
 
     ClassFile(const ClassFile&) = delete;
     ClassFile& operator=(const ClassFile&) = delete;
@@ -113,8 +140,8 @@ private:
     uint16_t this_class_;
     uint16_t super_class_;
     std::vector<uint16_t> interfaces_;
-    std::vector<FieldAndMethodInfo> fields_;
-    std::vector<FieldAndMethodInfo> methods_;
+    std::vector<FieldAndMethodInfo> fields_info_;
+    std::vector<FieldAndMethodInfo> methods_info_;
 
     /*u16 m_attributesCount;
     AttributeInfo* m_attributes = nullptr;*/

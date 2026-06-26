@@ -6,21 +6,26 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(APP_LIB_SOURCES
+    "source/class_loader/class_file.cpp"
+    "source/class_loader/class_file.hpp"
+    "source/class_loader/class_loader.cpp"
+    "source/class_loader/class_loader.hpp"
+    "source/class_loader/constant_pool_entry.hpp"
     "source/runtime/class.hpp"
     "source/runtime/class.cpp"
-    "source/runtime/class_loader.hpp"
-    "source/runtime/class_loader.cpp"
     "source/runtime/frame.hpp"
     "source/runtime/frame.cpp"
+    "source/runtime/heap.hpp"
+    "source/runtime/heap.cpp"
     "source/runtime/interpreter.hpp"
     "source/runtime/interpreter.cpp"
+    "source/runtime/object.hpp"
+    "source/runtime/object.cpp"
     "source/runtime/value.hpp"
     "source/runtime/vm.hpp"
     "source/runtime/vm.cpp"
     "source/utils/binary_reader.cpp"
     "source/utils/binary_reader.hpp"
-    "source/class_file.cpp"
-    "source/class_file.hpp"
 )
 
 add_library(app_lib STATIC ${APP_LIB_SOURCES})

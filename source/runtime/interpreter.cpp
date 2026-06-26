@@ -2,6 +2,8 @@
 
 #include "runtime/class.hpp"
 #include "runtime/frame.hpp"
+#include "runtime/heap.hpp"
+#include "runtime/object.hpp"
 #include "runtime/vm.hpp"
 
 #include <algorithm>
@@ -48,21 +50,71 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             frame.push_stack(static_cast<int32_t>(byte));
         } break;
         case 0x55: { // castore
-            auto value = frame.pop_stack();
-            auto index = frame.pop_stack();
-            auto reference = frame.pop_stack();
-            // TODO(Kostu96): store into the array under reference
+            auto value = std::get<int32_t>(frame.pop_stack());
+            auto index = std::get<int32_t>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
+            if (reference == nullptr || reference->kind() != Object::Kind::Array) {
+                // In a complete VM a null reference would raise NullPointerException.
+                throw std::runtime_error("castore: target is not an array reference");
+            }
+            auto* array = static_cast<ArrayObject*>(reference);
+            const auto element = static_cast<int32_t>(static_cast<uint16_t>(value)); // char is 16-bit
+            array->set(index, element);
         } break;
         case 0x59: { // dup
             frame.push_stack(frame.peek_stack());
         } break;
         case 0xB1: // return
             return std::nullopt;
+        case 0xB3: { // putstatic
+            const auto high = std::to_integer<uint16_t>(frame.pop_code_byte());
+            const auto low = std::to_integer<uint16_t>(frame.pop_code_byte());
+            const auto index = static_cast<uint16_t>((high << 8) | low);
+
+            const FieldRef field = frame.owner()->resolve_field_ref(index);
+
+            Class* target = (field.class_name == frame.owner()->name())
+                ? frame.owner()
+                : vm_.load_class(field.class_name);
+            vm_.initialize_class(target);
+
+            Value* slot = target->find_static_field(field.name, field.descriptor);
+            if (slot == nullptr) {
+                // In a complete VM this would raise NoSuchFieldError.
+                throw std::runtime_error(std::format(
+                    "putstatic: no static field {}.{}:{}",
+                    field.class_name, field.name, field.descriptor));
+            }
+
+            *slot = frame.pop_stack();
+        } break;
+        case 0xB7: { // invokespecial
+            const auto high = std::to_integer<uint16_t>(frame.pop_code_byte());
+            const auto low = std::to_integer<uint16_t>(frame.pop_code_byte());
+            const auto index = static_cast<uint16_t>((high << 8) | low);
+
+            const FieldRef method_ref = frame.owner()->resolve_field_ref(index);
+        } break;
+        case 0xBB: { // new
+            const auto high = std::to_integer<uint16_t>(frame.pop_code_byte());
+            const auto low = std::to_integer<uint16_t>(frame.pop_code_byte());
+            const auto index = static_cast<uint16_t>((high << 8) | low);
+
+            const std::string_view class_name = frame.owner()->resolve_class_name(index);
+
+            Class* target = (class_name == frame.owner()->name())
+                ? frame.owner()
+                : vm_.load_class(class_name);
+            vm_.initialize_class(target);
+
+            InstanceObject* instance = vm_.heap().new_instance(target);
+            frame.push_stack(static_cast<Object*>(instance));
+        } break;
         case 0xBC: { // newarray
-            auto count = frame.pop_stack();
+            auto count = std::get<int32_t>(frame.pop_stack());
             auto type = std::to_integer<uint8_t>(frame.pop_code_byte());
-            // TODO(Kostu96): create new array on the heap and push reference onto the stack
-            frame.push_stack(nullptr); // temp
+            ArrayObject* array = vm_.heap().new_array(static_cast<ArrayType>(type), count);
+            frame.push_stack(static_cast<Object*>(array));
         } break;
         default:
             throw std::runtime_error(std::format(

@@ -7,7 +7,10 @@
 VM::VM(std::string_view main_class) :
     main_class_(main_class),
     interpreter_(*this)
-{}
+{
+    class_loader_.load_native("java/lang/Object");
+    class_loader_.load_native("java/util/Random");
+}
 
 void VM::add_classpath_entry(std::filesystem::path dir) {
     class_loader_.add_classpath_entry(std::move(dir));

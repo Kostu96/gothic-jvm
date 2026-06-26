@@ -1,4 +1,4 @@
-#include "runtime/class_loader.hpp"
+#include "class_loader/class_loader.hpp"
 
 #include "runtime/class.hpp"
 
@@ -11,9 +11,14 @@ void ClassLoader::add_classpath_entry(std::filesystem::path dir) {
     classpath_.push_back(std::move(dir));
 }
 
-Class* ClassLoader::find_loaded(std::string_view binary_name) const noexcept {
-    auto it = loaded_.find(std::string(binary_name));
-    return it != loaded_.end() ? it->second.get() : nullptr;
+Class* ClassLoader::load_native(std::string_view binary_name) {
+    if (Class* existing = find_loaded(binary_name)) {
+        return existing;
+    }
+    auto cls = std::make_unique<Class>();
+    Class* raw = cls.get();
+    loaded_.emplace(std::string(binary_name), std::move(cls));
+    return raw;
 }
 
 Class* ClassLoader::load(std::string_view binary_name) {
@@ -31,6 +36,11 @@ Class* ClassLoader::load(std::string_view binary_name) {
     Class* raw = cls.get();
     loaded_.emplace(std::string(binary_name), std::move(cls));
     return raw;
+}
+
+Class* ClassLoader::find_loaded(std::string_view binary_name) const noexcept {
+    auto it = loaded_.find(std::string(binary_name));
+    return it != loaded_.end() ? it->second.get() : nullptr;
 }
 
 std::filesystem::path ClassLoader::resolve_path(std::string_view binary_name) const {

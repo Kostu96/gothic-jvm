@@ -134,21 +134,21 @@ ClassFile::ClassFile(const char* filename) {
     };
 
     auto fields_count = reader.read_u16();
-    fields_.resize(fields_count);
+    fields_info_.resize(fields_count);
     for (uint16_t i = 0; i < fields_count; ++i) {
-        fields_[i].access_flags = reader.read_u16();
-        fields_[i].name_index = reader.read_u16();
-        fields_[i].descriptor_index = reader.read_u16();
-        fields_[i].attributes = read_attributes();
+        fields_info_[i].access_flags = reader.read_u16();
+        fields_info_[i].name_index = reader.read_u16();
+        fields_info_[i].descriptor_index = reader.read_u16();
+        fields_info_[i].attributes = read_attributes();
     }
 
     auto methods_count = reader.read_u16();
-    methods_.resize(methods_count);
+    methods_info_.resize(methods_count);
     for (uint16_t i = 0; i < methods_count; ++i) {
-        methods_[i].access_flags = reader.read_u16();
-        methods_[i].name_index = reader.read_u16();
-        methods_[i].descriptor_index = reader.read_u16();
-        methods_[i].attributes = read_attributes();
+        methods_info_[i].access_flags = reader.read_u16();
+        methods_info_[i].name_index = reader.read_u16();
+        methods_info_[i].descriptor_index = reader.read_u16();
+        methods_info_[i].attributes = read_attributes();
     }
 
     /*m_attributesCount = parseU16BigEndian(ptr);
@@ -184,7 +184,11 @@ std::string_view ClassFile::get_class_name(uint16_t index) const {
         throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(index) + " is not a Class");
     }
 
-    return get_utf8(class_info->name_index);
+    if (class_info->name.empty()) {
+        class_info->name = get_utf8(class_info->name_index);
+    }
+
+    return class_info->name;
 }
 
 std::string_view ClassFile::get_this_name() const {
@@ -202,43 +206,43 @@ std::string_view ClassFile::get_super_name() const {
 }
 
 std::string_view ClassFile::get_method_name(uint16_t index) const {
-    if (index >= methods_.size()) {
+    if (index >= methods_info_.size()) {
         throw std::out_of_range("ClassFile: invalid method index: " + std::to_string(index));
     }
 
-    return get_utf8(methods_[index].name_index);
+    return get_utf8(methods_info_[index].name_index);
 }
 
 std::string_view ClassFile::get_method_descriptor(uint16_t index) const {
-    if (index >= methods_.size()) {
+    if (index >= methods_info_.size()) {
         throw std::out_of_range("ClassFile: invalid method index: " + std::to_string(index));
     }
 
-    return get_utf8(methods_[index].descriptor_index);
+    return get_utf8(methods_info_[index].descriptor_index);
 }
 
 uint16_t ClassFile::get_method_access_flags(uint16_t index) const {
-    if (index >= methods_.size()) {
+    if (index >= methods_info_.size()) {
         throw std::out_of_range("ClassFile: invalid method index: " + std::to_string(index));
     }
 
-    return methods_[index].access_flags;
+    return methods_info_[index].access_flags;
 }
 
 uint16_t ClassFile::get_method_attributes_count(uint16_t method_index) const {
-    if (method_index >= methods_.size()) {
+    if (method_index >= methods_info_.size()) {
         throw std::out_of_range("ClassFile: invalid method index: " + std::to_string(method_index));
     }
 
-    return static_cast<uint16_t>(methods_[method_index].attributes.size());
+    return static_cast<uint16_t>(methods_info_[method_index].attributes.size());
 }
 
 std::string_view ClassFile::get_method_attribute_name(uint16_t method_index, uint16_t attribute_index) const {
-    if (method_index >= methods_.size()) {
+    if (method_index >= methods_info_.size()) {
         throw std::out_of_range("ClassFile: invalid method index: " + std::to_string(method_index));
     }
 
-    const auto& attributes = methods_[method_index].attributes;
+    const auto& attributes = methods_info_[method_index].attributes;
     if (attribute_index >= attributes.size()) {
         throw std::out_of_range("ClassFile: invalid attribute index: " + std::to_string(attribute_index));
     }
@@ -247,14 +251,64 @@ std::string_view ClassFile::get_method_attribute_name(uint16_t method_index, uin
 }
 
 const CodeAttributeInfo* ClassFile::get_method_attribute_code(uint16_t method_index, uint16_t attribute_index) const {
-    if (method_index >= methods_.size()) {
+    if (method_index >= methods_info_.size()) {
         throw std::out_of_range("ClassFile: invalid method index: " + std::to_string(method_index));
     }
 
-    const auto& attributes = methods_[method_index].attributes;
+    const auto& attributes = methods_info_[method_index].attributes;
     if (attribute_index >= attributes.size()) {
         throw std::out_of_range("ClassFile: invalid attribute index: " + std::to_string(attribute_index));
     }
 
     return std::get_if<CodeAttributeInfo>(&attributes[attribute_index].info);
+}
+
+std::string_view ClassFile::get_field_name(uint16_t index) const {
+    if (index >= fields_info_.size()) {
+        throw std::out_of_range("ClassFile: invalid field index: " + std::to_string(index));
+    }
+
+    return get_utf8(fields_info_[index].name_index);
+}
+
+std::string_view ClassFile::get_field_descriptor(uint16_t index) const {
+    if (index >= fields_info_.size()) {
+        throw std::out_of_range("ClassFile: invalid field index: " + std::to_string(index));
+    }
+
+    return get_utf8(fields_info_[index].descriptor_index);
+}
+
+uint16_t ClassFile::get_field_access_flags(uint16_t index) const {
+    if (index >= fields_info_.size()) {
+        throw std::out_of_range("ClassFile: invalid field index: " + std::to_string(index));
+    }
+
+    return fields_info_[index].access_flags;
+}
+
+FieldRef ClassFile::get_field_ref(uint16_t constant_pool_index) const {
+    if (constant_pool_index == 0 || constant_pool_index >= constant_pool_.size()) {
+        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(constant_pool_index));
+    }
+
+    const auto* field_ref = std::get_if<FieldRefInfo>(&constant_pool_[constant_pool_index]);
+    if (!field_ref) {
+        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(constant_pool_index) + " is not a Fieldref");
+    }
+
+    if (field_ref->name_and_type_index == 0 || field_ref->name_and_type_index >= constant_pool_.size()) {
+        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(field_ref->name_and_type_index));
+    }
+
+    const auto* name_and_type = std::get_if<NameAndTypeInfo>(&constant_pool_[field_ref->name_and_type_index]);
+    if (!name_and_type) {
+        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(field_ref->name_and_type_index) + " is not a NameAndType");
+    }
+
+    return FieldRef{
+        get_class_name(field_ref->class_index),
+        get_utf8(name_and_type->name_index),
+        get_utf8(name_and_type->descriptor_index)
+    };
 }

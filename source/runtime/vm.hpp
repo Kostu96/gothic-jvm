@@ -1,5 +1,6 @@
 #pragma once
-#include "runtime/class_loader.hpp"
+#include "class_loader/class_loader.hpp"
+#include "runtime/heap.hpp"
 #include "runtime/interpreter.hpp"
 
 #include <filesystem>
@@ -22,11 +23,13 @@ public:
 
     ClassLoader& class_loader() noexcept { return class_loader_; }
     Interpreter& interpreter() noexcept { return interpreter_; }
+    Heap& heap() noexcept { return heap_; }
 
     VM(const VM&) = delete;
     VM& operator=(const VM&) = delete;
 private:
     std::string main_class_;
     ClassLoader class_loader_;
+    Heap heap_;
     Interpreter interpreter_;
 };

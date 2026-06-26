@@ -1,13 +1,16 @@
 #pragma once
-#include "class_file.hpp"
+#include "class_loader/class_file.hpp"
+#include "runtime/value.hpp"
 
+#include <memory>
 #include <span>
 #include <string_view>
+#include <vector>
 
 struct Field {
-    uint16_t access_flags;
-    uint16_t name_index;
-    uint16_t descriptor_index;
+    std::string_view name;
+    std::string_view descriptor;
+    Value value;
 };
 
 struct Method {
@@ -29,6 +32,8 @@ enum class ClassInitState {
 
 class Class {
 public:
+    Class();
+
     explicit Class(const char* filename);
 
     std::string_view name() const;
@@ -37,13 +42,18 @@ public:
     std::span<const Method> methods() const noexcept { return methods_; }
     const Method* find_method(std::string_view name, std::string_view descriptor) const noexcept;
 
+    Value* find_static_field(std::string_view name, std::string_view descriptor) noexcept;
+    FieldRef resolve_field_ref(uint16_t constant_pool_index) const;
+    std::string_view resolve_class_name(uint16_t constant_pool_index) const;
+
     ClassInitState init_state() const noexcept { return init_state_; }
     void set_init_state(ClassInitState state) noexcept { init_state_ = state; }
 
     Class(const Class&) = delete;
     Class& operator=(const Class&) = delete;
 private:
-    ClassFile class_file_;
+    std::unique_ptr<ClassFile> class_file_;
     std::vector<Method> methods_;
+    std::vector<Field> static_fields_;
     ClassInitState init_state_ = ClassInitState::Loaded;
 };

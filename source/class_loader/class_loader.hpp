@@ -15,6 +15,8 @@ public:
 
     void add_classpath_entry(std::filesystem::path dir);
 
+    Class* load_native(std::string_view binary_name);
+
     Class* load(std::string_view binary_name);
 
     Class* find_loaded(std::string_view binary_name) const noexcept;
