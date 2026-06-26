@@ -71,19 +71,19 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             const auto low = std::to_integer<uint16_t>(frame.pop_code_byte());
             const auto index = static_cast<uint16_t>((high << 8) | low);
 
-            const FieldRef field = frame.owner()->resolve_field_ref(index);
+            const FieldAndMethodRef field_ref = frame.owner()->resolve_field_ref(index);
 
-            Class* target = (field.class_name == frame.owner()->name())
+            Class* target = (field_ref.class_name == frame.owner()->this_name())
                 ? frame.owner()
-                : vm_.load_class(field.class_name);
+                : vm_.load_class(field_ref.class_name);
             vm_.initialize_class(target);
 
-            Value* slot = target->find_static_field(field.name, field.descriptor);
+            Value* slot = target->find_static_field(field_ref.name, field_ref.descriptor);
             if (slot == nullptr) {
                 // In a complete VM this would raise NoSuchFieldError.
                 throw std::runtime_error(std::format(
                     "putstatic: no static field {}.{}:{}",
-                    field.class_name, field.name, field.descriptor));
+                    field_ref.class_name, field_ref.name, field_ref.descriptor));
             }
 
             *slot = frame.pop_stack();
@@ -93,7 +93,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             const auto low = std::to_integer<uint16_t>(frame.pop_code_byte());
             const auto index = static_cast<uint16_t>((high << 8) | low);
 
-            const FieldRef method_ref = frame.owner()->resolve_field_ref(index);
+            const FieldAndMethodRef method_ref = frame.owner()->resolve_field_ref(index);
         } break;
         case 0xBB: { // new
             const auto high = std::to_integer<uint16_t>(frame.pop_code_byte());
@@ -102,7 +102,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
 
             const std::string_view class_name = frame.owner()->resolve_class_name(index);
 
-            Class* target = (class_name == frame.owner()->name())
+            Class* target = (class_name == frame.owner()->this_name())
                 ? frame.owner()
                 : vm_.load_class(class_name);
             vm_.initialize_class(target);
@@ -120,11 +120,11 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             throw std::runtime_error(std::format(
                 "Interpreter: unimplemented opcode 0x{:02X} at pc={} in {}.{}{}",
                 opcode, frame.pc() - 1,
-                frame.owner()->name(), frame.method()->name, frame.method()->descriptor));
+                frame.owner()->this_name(), frame.method()->name, frame.method()->descriptor));
         }
     }
 
     throw std::runtime_error(std::format(
         "Interpreter: fell off the end of {}.{}{}",
-        frame.owner()->name(), frame.method()->name, frame.method()->descriptor));
+        frame.owner()->this_name(), frame.method()->name, frame.method()->descriptor));
 }

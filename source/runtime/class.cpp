@@ -32,18 +32,16 @@ Class::Class() {
 Class::Class(const char* filename) :
     class_file_(std::make_unique<ClassFile>(filename))
 {
-    uint16_t methods_count = class_file_->get_methods_count();
-    methods_.reserve(methods_count);
-
-    for (uint16_t i = 0; i < methods_count; ++i) {
+    auto method_infos = class_file_->get_methods_info();
+    methods_.reserve(method_infos.size());
+    for (auto& method_info : method_infos) {
         Method method{};
-        method.access_flags = class_file_->get_method_access_flags(i);
-        method.name = class_file_->get_method_name(i);
-        method.descriptor = class_file_->get_method_descriptor(i);
+        method.access_flags = method_info.access_flags;
+        method.name = class_file_->get_utf8(method_info.name_index);
+        method.descriptor = class_file_->get_utf8(method_info.descriptor_index);
 
-        uint16_t attributes_count = class_file_->get_method_attributes_count(i);
-        for (uint16_t j = 0; j < attributes_count; ++j) {
-            if (const auto* code = class_file_->get_method_attribute_code(i, j)) {
+        for (auto& attr : method_info.attributes) {
+            if (const auto* code = std::get_if<CodeAttributeInfo>(&attr.info)) {
                 method.max_stack = code->max_stack;
                 method.max_locals = code->max_locals;
                 method.code = std::span<const std::byte>{ code->code };
@@ -55,26 +53,32 @@ Class::Class(const char* filename) :
         methods_.push_back(std::move(method));
     }
 
-    uint16_t fields_count = class_file_->get_fields_count();
-    for (uint16_t i = 0; i < fields_count; ++i) {
-        if ((class_file_->get_field_access_flags(i) & ACC_STATIC) == 0) {
+    auto field_infos = class_file_->get_fields_info();
+    for (auto& field_info : field_infos) {
+        if ((field_info.access_flags & ACC_STATIC) == 0) {
             continue;
         }
 
         Field field{};
-        field.name = class_file_->get_field_name(i);
-        field.descriptor = class_file_->get_field_descriptor(i);
+        field.name = class_file_->get_utf8(field_info.name_index);
+        field.descriptor = class_file_->get_utf8(field_info.descriptor_index);
         field.value = default_field_value(field.descriptor);
         static_fields_.push_back(field);
     }
 }
 
-std::string_view Class::name() const {
-    return class_file_->get_this_name();
+std::string_view Class::this_name() const {
+    if (this_name_.empty()) {
+        this_name_ = class_file_->get_this_name();
+    }
+    return this_name_;
 }
 
 std::string_view Class::super_name() const {
-    return class_file_->get_super_name();
+    if (super_name_.empty()) {
+        super_name_ = class_file_->get_super_name();
+    }
+    return super_name_;
 }
 
 const Method* Class::find_method(std::string_view name, std::string_view descriptor) const noexcept {
@@ -91,7 +95,7 @@ Value* Class::find_static_field(std::string_view name, std::string_view descript
     return it != static_fields_.end() ? &it->value : nullptr;
 }
 
-FieldRef Class::resolve_field_ref(uint16_t constant_pool_index) const {
+FieldAndMethodRef Class::resolve_field_ref(uint16_t constant_pool_index) const {
     return class_file_->get_field_ref(constant_pool_index);
 }
 

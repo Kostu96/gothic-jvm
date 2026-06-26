@@ -39,7 +39,7 @@ void VM::initialize_class(Class* cls) {
         return;
     case ClassInitState::Failed:
         throw std::runtime_error(
-            "VM: class '" + std::string(cls->name()) + "' previously failed initialization");
+            "VM: class '" + std::string(cls->this_name()) + "' previously failed initialization");
     case ClassInitState::Loaded:
         break;
     }

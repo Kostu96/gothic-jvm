@@ -36,14 +36,14 @@ public:
 
     explicit Class(const char* filename);
 
-    std::string_view name() const;
+    std::string_view this_name() const;
     std::string_view super_name() const;
 
     std::span<const Method> methods() const noexcept { return methods_; }
     const Method* find_method(std::string_view name, std::string_view descriptor) const noexcept;
 
     Value* find_static_field(std::string_view name, std::string_view descriptor) noexcept;
-    FieldRef resolve_field_ref(uint16_t constant_pool_index) const;
+    FieldAndMethodRef resolve_field_ref(uint16_t constant_pool_index) const;
     std::string_view resolve_class_name(uint16_t constant_pool_index) const;
 
     ClassInitState init_state() const noexcept { return init_state_; }
@@ -53,6 +53,8 @@ public:
     Class& operator=(const Class&) = delete;
 private:
     std::unique_ptr<ClassFile> class_file_;
+    mutable std::string_view this_name_;
+    mutable std::string_view super_name_;
     std::vector<Method> methods_;
     std::vector<Field> static_fields_;
     ClassInitState init_state_ = ClassInitState::Loaded;

@@ -2,10 +2,17 @@
 #include "class_loader/constant_pool_entry.hpp"
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <variant>
 #include <vector>
+
+struct FieldAndMethodRef {
+    std::string_view class_name;
+    std::string_view name;
+    std::string_view descriptor;
+};
 
 struct ExceptionTableEntry {
     uint16_t start_pc;
@@ -34,43 +41,30 @@ struct FieldAndMethodInfo {
     std::vector<AttributeInfo> attributes;
 };
 
-// A symbolic field reference resolved from a CONSTANT_Fieldref_info entry into
-// its declaring class name, field name, and field descriptor.
-struct FieldRef {
-    std::string_view class_name;
-    std::string_view name;
-    std::string_view descriptor;
-};
-
 class ClassFile
 {
 public:
 	explicit ClassFile(const char* filename);
 
+    std::string_view get_utf8(uint16_t index) const;
+    int32_t get_integer(uint16_t index) const;
+    int64_t get_long(uint16_t index) const;
     std::string_view get_class_name(uint16_t index) const;
-    std::string_view get_this_name() const;
-    std::string_view get_super_name() const;
+    std::string_view get_string(uint16_t index) const;
+    FieldAndMethodRef get_field_ref(uint16_t index) const;
+    FieldAndMethodRef get_method_ref(uint16_t index) const;
+    FieldAndMethodRef get_interface_method_ref(uint16_t index) const;
 
-    uint16_t get_methods_count() const { return static_cast<uint16_t>(methods_info_.size()); }
-    std::string_view get_method_name(uint16_t index) const;
-    std::string_view get_method_descriptor(uint16_t index) const;
-    uint16_t get_method_access_flags(uint16_t index) const;
-    uint16_t get_method_attributes_count(uint16_t method_index) const;
-    std::string_view get_method_attribute_name(uint16_t method_index, uint16_t attribute_index) const;
-    const CodeAttributeInfo* get_method_attribute_code(uint16_t method_index, uint16_t attribute_index) const;
+    uint16_t get_access_flags() const { return access_flags_; }
+    std::string_view get_this_name() const { return get_class_name(this_class_); }
+    std::string_view get_super_name() const { return get_class_name(super_class_); }
 
-    uint16_t get_fields_count() const { return static_cast<uint16_t>(fields_info_.size()); }
-    std::string_view get_field_name(uint16_t index) const;
-    std::string_view get_field_descriptor(uint16_t index) const;
-    uint16_t get_field_access_flags(uint16_t index) const;
-
-    FieldRef get_field_ref(uint16_t constant_pool_index) const;
+    std::span<const FieldAndMethodInfo> get_fields_info() const noexcept { return fields_info_; }
+    std::span<const FieldAndMethodInfo> get_methods_info() const noexcept { return methods_info_; }
 
     ClassFile(const ClassFile&) = delete;
     ClassFile& operator=(const ClassFile&) = delete;
 private:
-    std::string_view get_utf8(uint16_t index) const;
-
     uint16_t version_minor_;
     uint16_t version_major_;
     std::vector<ConstantPoolEntry> constant_pool_;
@@ -83,8 +77,4 @@ private:
 
     /*u16 m_attributesCount;
     AttributeInfo* m_attributes = nullptr;*/
-
-    // Cached symbols:
-    mutable std::string_view this_name_;
-    mutable std::string_view super_name_;
 };
