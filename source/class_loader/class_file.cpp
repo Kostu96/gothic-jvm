@@ -184,11 +184,7 @@ std::string_view ClassFile::get_class_name(uint16_t index) const {
         throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(index) + " is not a Class");
     }
 
-    if (class_info->name.empty()) {
-        class_info->name = get_utf8(class_info->name_index);
-    }
-
-    return class_info->name;
+    return get_utf8(class_info->name_index);
 }
 
 std::string_view ClassFile::get_this_name() const {

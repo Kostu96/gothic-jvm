@@ -1,73 +1,11 @@
 #pragma once
+#include "class_loader/constant_pool_entry.hpp"
+
 #include <cstdint>
 #include <string>
 #include <string_view>
 #include <variant>
 #include <vector>
-
-struct Field;
-struct Method;
-
-struct Utf8Info {
-    std::string value;
-};
-
-struct IntegerInfo {
-    int32_t value;
-};
-
-struct LongInfo {
-    int64_t value;
-};
-
-struct ClassInfo {
-    uint16_t name_index;
-
-    mutable std::string_view name;
-};
-
-struct StringInfo {
-    uint16_t string_index;
-
-    mutable std::string_view name;
-};
-
-struct FieldRefInfo {
-    uint16_t class_index;
-    uint16_t name_and_type_index;
-
-    mutable Field* field = nullptr;
-};
-
-struct MethodRefInfo {
-    uint16_t class_index;
-    uint16_t name_and_type_index;
-
-    mutable Method* method = nullptr;
-};
-
-struct InterfaceMethodRefInfo {
-    uint16_t class_index;
-    uint16_t name_and_type_index;
-};
-
-struct NameAndTypeInfo {
-    uint16_t name_index;
-    uint16_t descriptor_index;
-};
-
-using ConstantPoolEntry = std::variant<
-    std::monostate,
-    Utf8Info,
-    IntegerInfo,
-    LongInfo,
-    ClassInfo,
-    StringInfo,
-    FieldRefInfo,
-    MethodRefInfo,
-    InterfaceMethodRefInfo,
-    NameAndTypeInfo
->;
 
 struct ExceptionTableEntry {
     uint16_t start_pc;
