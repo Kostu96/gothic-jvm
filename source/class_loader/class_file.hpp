@@ -1,5 +1,6 @@
 #pragma once
 #include "class_loader/constant_pool_entry.hpp"
+#include "runtime/value.hpp"
 
 #include <cstdint>
 #include <span>
@@ -46,14 +47,16 @@ class ClassFile
 public:
 	explicit ClassFile(const char* filename);
 
-    std::string_view get_utf8(uint16_t index) const;
-    int32_t get_integer(uint16_t index) const;
-    int64_t get_long(uint16_t index) const;
-    std::string_view get_class_name(uint16_t index) const;
-    std::string_view get_string(uint16_t index) const;
-    FieldAndMethodRef get_field_ref(uint16_t index) const;
-    FieldAndMethodRef get_method_ref(uint16_t index) const;
-    FieldAndMethodRef get_interface_method_ref(uint16_t index) const;
+    std::string_view get_utf8(uint16_t constant_pool_index) const;
+    int32_t get_integer(uint16_t constant_pool_index) const;
+    int64_t get_long(uint16_t constant_pool_index) const;
+    std::string_view get_class_name(uint16_t constant_pool_index) const;
+    std::string_view get_string(uint16_t constant_pool_index) const;
+    FieldAndMethodRef get_field_ref(uint16_t constant_pool_index) const;
+    FieldAndMethodRef get_method_ref(uint16_t constant_pool_index) const;
+    FieldAndMethodRef get_interface_method_ref(uint16_t constant_pool_index) const;
+
+    Value get_constant(uint16_t constant_pool_index) const;
 
     uint16_t get_access_flags() const { return access_flags_; }
     std::string_view get_this_name() const { return get_class_name(this_class_); }

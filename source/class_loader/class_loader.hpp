@@ -26,6 +26,8 @@ public:
 private:
     std::filesystem::path resolve_path(std::string_view binary_name) const;
 
+    Class* load_array(std::string_view array_name);
+
     std::vector<std::filesystem::path> classpath_;
     std::unordered_map<std::string, std::unique_ptr<Class>> loaded_;
 };

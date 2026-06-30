@@ -10,7 +10,7 @@
  */
 int main(int argc, char** argv) {
     try {
-        const char* main_class = argc >= 2 ? argv[1] : "gothic3thebeginning/HG";
+        const char* main_class = argc >= 2 ? argv[1] : "HG";
 
         VM vm(main_class);
 
@@ -20,13 +20,13 @@ int main(int argc, char** argv) {
             }
         }
         else {
-            vm.add_classpath_entry(std::filesystem::current_path());
+            vm.add_classpath_entry(std::filesystem::current_path() / "gothic3thebeginning");
         }
 
         vm.run();
     }
     catch (const std::exception& e) {
-        std::println(stderr, "VM error: {}", e.what());
+        std::println(stderr, "{}", e.what());
         return 1;
     }
 

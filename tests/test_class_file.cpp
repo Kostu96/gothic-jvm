@@ -1,4 +1,4 @@
-#include "class_file.hpp"
+#include "class_loader/class_file.hpp"
 #include "runtime/class.hpp"
 
 #include <gtest/gtest.h>
@@ -18,7 +18,7 @@ std::string test_file(const char* name) {
 TEST(ClassFileTest, ParsesHelloWorldClassName) {
     Class hello(test_file("HelloWorld.class").c_str());
 
-    EXPECT_EQ(hello.name(), "HelloWorld");
+    EXPECT_EQ(hello.this_name(), "HelloWorld");
     EXPECT_EQ(hello.super_name(), "java/lang/Object");
 }
 
@@ -43,7 +43,7 @@ TEST(ClassFileTest, HelloWorldFindMethodReturnsNullForMiss) {
 TEST(ClassFileTest, ParsesAdditionClassName) {
     Class addition(test_file("Addition.class").c_str());
 
-    EXPECT_EQ(addition.name(), "Addition");
+    EXPECT_EQ(addition.this_name(), "Addition");
     EXPECT_EQ(addition.super_name(), "java/lang/Object");
 }
 

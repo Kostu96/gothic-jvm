@@ -1,11 +1,18 @@
 #pragma once
 #include "class_loader/class_file.hpp"
+#include "class_loader/native_class_description.hpp"
+#include "runtime/runtime_constant_pool_entry.hpp"
 #include "runtime/value.hpp"
 
+#include <functional>
 #include <memory>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
+
+class VM;
+class Frame;
 
 struct Field {
     std::string_view name;
@@ -14,13 +21,14 @@ struct Field {
 };
 
 struct Method {
-    uint16_t access_flags;
+    bool is_native;
     std::string_view name;
     std::string_view descriptor;
     uint16_t max_stack;
     uint16_t max_locals;
     std::span<const std::byte> code;
     std::span<const ExceptionTableEntry> exception_table;
+    std::function<void(VM&, Frame&)> native_callback;
 };
 
 enum class ClassInitState {
@@ -30,21 +38,34 @@ enum class ClassInitState {
     Failed         // <clinit> threw; further use must rethrow NoClassDefFoundError
 };
 
+enum class ClassKind {
+    File,    // parsed from a .class file
+    Native,  // backed by a NativeClassDescription
+    Array    // synthetic array class (e.g. "[Ljava/lang/String;")
+};
+
 class Class {
 public:
-    Class();
-
+    explicit Class(const NativeClassDescription& description);
     explicit Class(const char* filename);
+    // Synthetic array class. `component` is the element class (null for a
+    // primitive base element such as `[I`).
+    Class(std::string array_name, Class* component);
+
+    ClassKind kind() const noexcept { return kind_; }
+    bool is_array() const noexcept { return kind_ == ClassKind::Array; }
+    Class* component_type() const noexcept { return component_; }
 
     std::string_view this_name() const;
     std::string_view super_name() const;
 
-    std::span<const Method> methods() const noexcept { return methods_; }
+    Value* find_static_field(std::string_view name, std::string_view descriptor) noexcept;
     const Method* find_method(std::string_view name, std::string_view descriptor) const noexcept;
 
-    Value* find_static_field(std::string_view name, std::string_view descriptor) noexcept;
-    FieldAndMethodRef resolve_field_ref(uint16_t constant_pool_index) const;
+    Value resolve_constant(VM& vm, uint16_t constant_pool_index) const;
     std::string_view resolve_class_name(uint16_t constant_pool_index) const;
+    FieldAndMethodRef resolve_field_ref(uint16_t constant_pool_index) const;
+    FieldAndMethodRef resolve_method_ref(uint16_t constant_pool_index) const;
 
     ClassInitState init_state() const noexcept { return init_state_; }
     void set_init_state(ClassInitState state) noexcept { init_state_ = state; }
@@ -53,9 +74,14 @@ public:
     Class& operator=(const Class&) = delete;
 private:
     std::unique_ptr<ClassFile> class_file_;
+    std::vector<RuntimeConstantPoolEntry> runtime_constant_pool_;
     mutable std::string_view this_name_;
     mutable std::string_view super_name_;
-    std::vector<Method> methods_;
     std::vector<Field> static_fields_;
+    std::vector<Method> methods_;
     ClassInitState init_state_ = ClassInitState::Loaded;
+    ClassKind kind_ = ClassKind::File;
+    std::string name_;        // backing storage for native/array class names
+    std::string native_super_name_; // backing storage for native class super name
+    Class* component_ = nullptr; // element class for array kinds
 };

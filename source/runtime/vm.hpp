@@ -19,7 +19,7 @@ public:
 
     Class* load_class(std::string_view binary_name);
 
-    void initialize_class(Class* cls);
+    void initialize_class(Class& cls);
 
     ClassLoader& class_loader() noexcept { return class_loader_; }
     Interpreter& interpreter() noexcept { return interpreter_; }
