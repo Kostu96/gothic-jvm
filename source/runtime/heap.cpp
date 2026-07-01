@@ -5,6 +5,10 @@
 
 RuntimeObject* Heap::new_instance(Class& type) {
     auto instance = std::make_unique<RuntimeObject>(RuntimeObject{ InstanceData{ &type } });
+
+    auto& data = std::get<InstanceData>(instance->data);
+    data.fields.resize(type.get_total_field_count());
+
     RuntimeObject* reference = instance.get();
     objects_.push_back(std::move(instance));
 

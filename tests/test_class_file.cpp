@@ -1,4 +1,5 @@
 #include "class_loader/class_file.hpp"
+#include "class_loader/class_loader.hpp"
 #include "runtime/class.hpp"
 
 #include <gtest/gtest.h>
@@ -16,14 +17,16 @@ std::string test_file(const char* name) {
 } // namespace
 
 TEST(ClassFileTest, ParsesHelloWorldClassName) {
-    Class hello(test_file("HelloWorld.class").c_str());
+    ClassLoader class_loader;
+    Class hello(test_file("HelloWorld.class").c_str(), class_loader);
 
     EXPECT_EQ(hello.this_name(), "HelloWorld");
     EXPECT_EQ(hello.super_name(), "java/lang/Object");
 }
 
 TEST(ClassFileTest, HelloWorldContainsInitAndMain) {
-    Class hello(test_file("HelloWorld.class").c_str());
+    ClassLoader class_loader;
+    Class hello(test_file("HelloWorld.class").c_str(), class_loader);
 
     EXPECT_NE(hello.find_method("<init>", "()V"), nullptr);
 
@@ -34,21 +37,24 @@ TEST(ClassFileTest, HelloWorldContainsInitAndMain) {
 }
 
 TEST(ClassFileTest, HelloWorldFindMethodReturnsNullForMiss) {
-    Class hello(test_file("HelloWorld.class").c_str());
+    ClassLoader class_loader;
+    Class hello(test_file("HelloWorld.class").c_str(), class_loader);
 
     EXPECT_EQ(hello.find_method("doesNotExist", "()V"), nullptr);
     EXPECT_EQ(hello.find_method("main", "()V"), nullptr); // wrong descriptor
 }
 
 TEST(ClassFileTest, ParsesAdditionClassName) {
-    Class addition(test_file("Addition.class").c_str());
+    ClassLoader class_loader;
+    Class addition(test_file("Addition.class").c_str(), class_loader);
 
     EXPECT_EQ(addition.this_name(), "Addition");
     EXPECT_EQ(addition.super_name(), "java/lang/Object");
 }
 
 TEST(ClassFileTest, AdditionContainsAllMethods) {
-    Class addition(test_file("Addition.class").c_str());
+    ClassLoader class_loader;
+    Class addition(test_file("Addition.class").c_str(), class_loader);
 
     EXPECT_NE(addition.find_method("<init>", "()V"), nullptr);
     // Static initializer is emitted because of `static int x = 3; static int y = 5;`.
@@ -60,7 +66,8 @@ TEST(ClassFileTest, AdditionContainsAllMethods) {
 }
 
 TEST(ClassFileTest, AdditionAddArgumentsHasNonEmptyCode) {
-    Class addition(test_file("Addition.class").c_str());
+    ClassLoader class_loader;
+    Class addition(test_file("Addition.class").c_str(), class_loader);
 
     const Method* method = addition.find_method("addArguments", "(II)I");
     ASSERT_NE(method, nullptr);
@@ -70,5 +77,6 @@ TEST(ClassFileTest, AdditionAddArgumentsHasNonEmptyCode) {
 }
 
 TEST(ClassFileTest, MissingFileThrows) {
-    EXPECT_THROW(Class("definitely_not_a_real_path_to.class"), std::runtime_error);
+    ClassLoader class_loader;
+    EXPECT_THROW(Class("definitely_not_a_real_path_to.class", class_loader), std::runtime_error);
 }

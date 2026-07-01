@@ -13,6 +13,7 @@ int main(int argc, char** argv) {
         const char* main_class = argc >= 2 ? argv[1] : "HG";
 
         VM vm(main_class);
+        vm.add_classpath_entry(std::filesystem::current_path() / "classes");
 
         if (argc >= 3) {
             for (int i = 2; i < argc; ++i) {

@@ -9,16 +9,16 @@ VM::VM(std::string_view main_class) :
     main_class_(main_class),
     interpreter_(*this)
 {
-    class_loader_.load_native("java/io/DataInputStream");
-    class_loader_.load_native("java/lang/Object");
-    class_loader_.load_native("java/lang/Class");
-    class_loader_.load_native("java/lang/String");
-    class_loader_.load_native("java/util/Hashtable");
-    class_loader_.load_native("java/util/Random");
-    class_loader_.load_native("java/util/Stack");
-    class_loader_.load_native("java/util/Vector");
-    class_loader_.load_native("javax/microedition/midlet/MIDlet");
-    class_loader_.load_native("com/nokia/mid/ui/FullCanvas");
+    //class_loader_.load_native("java/io/DataInputStream");
+    //class_loader_.load_native("java/lang/Object");
+    //class_loader_.load_native("java/lang/Class");
+    //class_loader_.load_native("java/lang/String");
+    //class_loader_.load_native("java/util/Hashtable");
+    //class_loader_.load_native("java/util/Random");
+    //class_loader_.load_native("java/util/Stack");
+    //class_loader_.load_native("java/util/Vector");
+    //class_loader_.load_native("javax/microedition/midlet/MIDlet");
+    //class_loader_.load_native("com/nokia/mid/ui/FullCanvas");
 }
 
 void VM::add_classpath_entry(std::filesystem::path dir) {

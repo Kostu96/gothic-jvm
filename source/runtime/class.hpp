@@ -1,20 +1,27 @@
 #pragma once
 #include "class_loader/class_file.hpp"
-#include "class_loader/native_class_description.hpp"
 #include "runtime/runtime_constant_pool_entry.hpp"
 #include "runtime/value.hpp"
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
-class VM;
+class ClassLoader;
 class Frame;
+class VM;
 
 struct Field {
+    std::string_view name;
+    std::string_view descriptor;
+    uint16_t slot;
+};
+
+struct StaticField {
     std::string_view name;
     std::string_view descriptor;
     Value value;
@@ -40,14 +47,12 @@ enum class ClassInitState {
 
 enum class ClassKind {
     File,    // parsed from a .class file
-    Native,  // backed by a NativeClassDescription
     Array    // synthetic array class (e.g. "[Ljava/lang/String;")
 };
 
 class Class {
 public:
-    explicit Class(const NativeClassDescription& description);
-    explicit Class(const char* filename);
+    Class(const char* filename, ClassLoader& class_loader);
     // Synthetic array class. `component` is the element class (null for a
     // primitive base element such as `[I`).
     Class(std::string array_name, Class* component);
@@ -59,6 +64,8 @@ public:
     std::string_view this_name() const;
     std::string_view super_name() const;
 
+    size_t get_total_field_count() const noexcept { return total_field_count_; }
+    std::optional<uint16_t> find_field_slot(std::string_view name, std::string_view descriptor) const noexcept;
     Value* find_static_field(std::string_view name, std::string_view descriptor) noexcept;
     const Method* find_method(std::string_view name, std::string_view descriptor) const noexcept;
 
@@ -77,11 +84,12 @@ private:
     std::vector<RuntimeConstantPoolEntry> runtime_constant_pool_;
     mutable std::string_view this_name_;
     mutable std::string_view super_name_;
-    std::vector<Field> static_fields_;
+    size_t total_field_count_ = 0;
+    std::vector<Field> fields_;
+    std::vector<StaticField> static_fields_;
     std::vector<Method> methods_;
     ClassInitState init_state_ = ClassInitState::Loaded;
     ClassKind kind_ = ClassKind::File;
     std::string name_;        // backing storage for native/array class names
-    std::string native_super_name_; // backing storage for native class super name
     Class* component_ = nullptr; // element class for array kinds
 };

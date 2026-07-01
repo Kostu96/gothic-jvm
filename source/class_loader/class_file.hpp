@@ -60,7 +60,7 @@ public:
 
     uint16_t get_access_flags() const { return access_flags_; }
     std::string_view get_this_name() const { return get_class_name(this_class_); }
-    std::string_view get_super_name() const { return get_class_name(super_class_); }
+    std::string_view get_super_name() const { return super_class_ != 0 ? get_class_name(super_class_) : ""; }
 
     std::span<const FieldAndMethodInfo> get_fields_info() const noexcept { return fields_info_; }
     std::span<const FieldAndMethodInfo> get_methods_info() const noexcept { return methods_info_; }

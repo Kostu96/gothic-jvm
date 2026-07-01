@@ -1,4 +1,5 @@
 #pragma once
+#include "runtime/class.hpp"
 #include "runtime/value.hpp"
 
 #include <cstdint>
@@ -6,11 +7,6 @@
 #include <vector>
 
 class Class;
-
-// Heap objects are a closed, spec-defined set, so they are modeled as a tagged
-// union rather than a class hierarchy. Access an Object's payload with
-// std::get_if/std::holds_alternative on its `data` member, mirroring how Value
-// is used throughout the interpreter.
 
 enum class ElementType : uint8_t {
     Boolean = 4,
@@ -24,7 +20,8 @@ enum class ElementType : uint8_t {
 };
 
 struct InstanceData {
-    Class* type; // runtime class of the instance (never null)
+    Class* type;
+    std::vector<Value> fields;
 };
 
 struct PrimitiveArrayData {
@@ -49,8 +46,6 @@ struct InstanceArrayData {
     void set(int32_t index, RuntimeObject* value);
 };
 
-// A java/lang/Class instance: reflects the class returned by Object.getClass().
-// Mirrors are canonical (one per Class), produced by Heap::class_object_for.
 struct ClassMirrorData {
     Class* mirrored;
 };

@@ -3,6 +3,7 @@
 #include "runtime/class.hpp"
 #include "runtime/frame.hpp"
 #include "runtime/heap.hpp"
+#include "runtime/opcodes.hpp"
 #include "runtime/runtime_object.hpp"
 #include "runtime/vm.hpp"
 
@@ -87,106 +88,201 @@ void Interpreter::invoke(Class& owner, const Method& method, size_t arg_count, F
         for (size_t i = arg_count; i > 0; --i) {
             args[i - 1] = frame.pop_stack();
         }
-        execute(owner, method, args);
+        auto ret = execute(owner, method, args);
+        if (ret.has_value()) {
+            frame.push_stack(*ret);
+        }
     }
 }
 
+template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
+
 std::optional<Value> Interpreter::run(Frame& frame) {
     while (frame.pc() < frame.method().code.size()) {
+        std::print("Stack: [");
+        for (size_t i = 0; i < frame.operand_stack().size(); ++i) {
+            if (i > 0) {
+                std::print(", ");
+            }
+            auto val = frame.operand_stack()[i];
+            std::visit(overloaded{
+                [](std::monostate) { std::print("!invalid!"); },
+                [](int32_t arg) { std::print("int: {}", arg); },
+                [](int64_t arg) { std::print("long: {}", arg); },
+                [](float arg) { std::print("float: {}", arg); },
+                [](double arg) { std::print("double: {}", arg); },
+                [](RuntimeObject* arg) { std::print("object: {}", static_cast<const void*>(arg)); }
+            }, val);
+        }
+        std::println("]");
         std::print("{:04X}: ", frame.pc());
         const auto opcode = frame.pop_code_u8();
 
         switch (opcode) {
-        case 0x00: { // nop
+        case op_nop: {
             std::println("{:{}}", "nop", OPCODE_PRINT_PAD_WIDTH);
         } break;
-        case 0x01: { // aconst_null
+        case op_aconst_null: {
             std::println("{:{}}", "aconst_null", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<RuntimeObject*>(nullptr));
         } break;
-        case 0x02: { // iconst_m1
+        case op_iconst_m1: {
             std::println("{:{}}", "iconst_m1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(-1));
         } break;
-        case 0x03: { // iconst_0
+        case op_iconst_0: {
             std::println("{:{}}", "iconst_0", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(0));
         } break;
-        case 0x04: { // iconst_1
+        case op_iconst_1: { 
             std::println("{:{}}", "iconst_1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(1));
         } break;
-        case 0x05: { // iconst_2
+        case op_iconst_2: {
             std::println("{:{}}", "iconst_2", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(2));
         } break;
-        case 0x06: { // iconst_3
+        case op_iconst_3: {
             std::println("{:{}}", "iconst_3", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(3));
         } break;
-        case 0x07: { // iconst_4
+        case op_iconst_4: {
             std::println("{:{}}", "iconst_4", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(4));
         } break;
-        case 0x08: { // iconst_5
+        case op_iconst_5: {
             std::println("{:{}}", "iconst_5", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(5));
         } break;
-        case 0x09: { // lconst_0
+        case op_lconst_0: {
             std::println("{:{}}", "lconst_0", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int64_t>(0));
         } break;
-        case 0x0A: { // lconst_1
+        case op_lconst_1: {
             std::println("{:{}}", "lconst_1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int64_t>(1));
         } break;
-        case 0x0C: { // fconst_1
+        case op_fconst_0: {
+            std::println("{:{}}", "fconst_0", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(static_cast<float>(0.0));
+        } break;
+        case op_fconst_1: {
             std::println("{:{}}", "fconst_1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<float>(1.0));
         } break;
-        case 0x10: { // bipush
+        case op_fconst_2: {
+            std::println("{:{}}", "fconst_2", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(static_cast<float>(2.0));
+        } break;
+        case op_dconst_0: {
+            std::println("{:{}}", "dconst_0", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(static_cast<double>(0.0));
+        } break;
+        case op_dconst_1: {
+            std::println("{:{}}", "dconst_1", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(static_cast<double>(1.0));
+        } break;
+        case op_bipush: {
             auto byte = frame.pop_code_u8();
             std::println("{:{}} {:02X}", "bipush", OPCODE_PRINT_PAD_WIDTH, byte);
             frame.push_stack(static_cast<int32_t>(byte));
         } break;
-        case 0x11: { // sipush
+        case op_sipush: {
             auto short_value = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "sipush", OPCODE_PRINT_PAD_WIDTH, short_value);
             frame.push_stack(static_cast<int32_t>(short_value));
         } break;
-        case 0x13: { // ldc_w
+        case op_ldc: {
+            const auto index = frame.pop_code_u8();
+            std::println("{:{}} {:02X}", "ldc", OPCODE_PRINT_PAD_WIDTH, index);
+            const auto value = frame.owner().resolve_constant(vm_, index);
+            frame.push_stack(value);
+        } break;
+        case op_ldc_w: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "ldc_w", OPCODE_PRINT_PAD_WIDTH, index);
-            const auto value = frame.owner().resolve_constant(index);
+            const auto value = frame.owner().resolve_constant(vm_, index);
             frame.push_stack(value);
         } break;
-        case 0x14: { // ldc2_w
+        case op_ldc2_w: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "ldc2_w", OPCODE_PRINT_PAD_WIDTH, index);
-            const auto value = frame.owner().resolve_constant(index);
+            const auto value = frame.owner().resolve_constant(vm_, index);
             frame.push_stack(value);
         } break;
-        case 0x2A: { // aload_0
+
+        case op_iload_0: {
+            std::println("{:{}}", "iload_0", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(frame.locals()[0]);
+        } break;
+        case op_iload_1: {
+            std::println("{:{}}", "iload_1", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(frame.locals()[1]);
+        } break;
+        case op_iload_2: {
+            std::println("{:{}}", "iload_2", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(frame.locals()[2]);
+        } break;
+        case op_iload_3: {
+            std::println("{:{}}", "iload_3", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(frame.locals()[3]);
+        } break;
+        case op_lload_0: {
+            std::println("{:{}}", "lload_0", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(frame.locals()[0]);
+        } break;
+        case op_lload_1: {
+            std::println("{:{}}", "lload_1", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(frame.locals()[1]);
+        } break;
+        case op_lload_2: {
+            std::println("{:{}}", "lload_2", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(frame.locals()[2]);
+        } break;
+        case op_lload_3: {
+            std::println("{:{}}", "lload_3", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(frame.locals()[3]);
+        } break;
+
+        case op_aload_0: {
             std::println("{:{}}", "aload_0", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[0]);
         } break;
-        case 0x2B: { // aload_1
+        case op_aload_1: {
             std::println("{:{}}", "aload_1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[1]);
         } break;
-        case 0x4B: { // astore_0
-            std::println("{:{}}", "astore_0", OPCODE_PRINT_PAD_WIDTH);
+        case op_aload_2: {
+            std::println("{:{}}", "aload_2", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(frame.locals()[2]);
+        } break;
+        case op_aload_3: {
+            std::println("{:{}}", "aload_3", OPCODE_PRINT_PAD_WIDTH);
+            frame.push_stack(frame.locals()[3]);
+        } break;
 
+        case op_astore_0: {
+            std::println("{:{}}", "astore_0", OPCODE_PRINT_PAD_WIDTH);
             auto value = std::get<RuntimeObject*>(frame.pop_stack());
             frame.locals()[0] = value;
         } break;
-        case 0x4C: { // astore_1
+        case op_astore_1: {
             std::println("{:{}}", "astore_1", OPCODE_PRINT_PAD_WIDTH);
-
             auto value = std::get<RuntimeObject*>(frame.pop_stack());
             frame.locals()[1] = value;
         } break;
-        case 0x4F: { // iastore
+        case op_astore_2: {
+            std::println("{:{}}", "astore_2", OPCODE_PRINT_PAD_WIDTH);
+            auto value = std::get<RuntimeObject*>(frame.pop_stack());
+            frame.locals()[2] = value;
+        } break;
+        case op_astore_3: {
+            std::println("{:{}}", "astore_3", OPCODE_PRINT_PAD_WIDTH);
+            auto value = std::get<RuntimeObject*>(frame.pop_stack());
+            frame.locals()[3] = value;
+        } break;
+        case op_iastore: {
             std::println("{:{}}", "iastore", OPCODE_PRINT_PAD_WIDTH);
 
             auto value = std::get<int32_t>(frame.pop_stack());
@@ -199,7 +295,8 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             }
             array->set(index, value);
         } break;
-        case 0x53: { // aastore
+        
+        case op_aastore: {
             std::println("{:{}}", "aastore", OPCODE_PRINT_PAD_WIDTH);
 
             auto object = std::get<RuntimeObject*>(frame.pop_stack());
@@ -220,7 +317,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             }
             array->set(index, object);
         } break;
-        case 0x54: { //bastore
+        case op_bastore: {
             std::println("{:{}}", "bastore", OPCODE_PRINT_PAD_WIDTH);
 
             auto value = std::get<int32_t>(frame.pop_stack());
@@ -234,7 +331,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             const auto element = static_cast<int32_t>(static_cast<int8_t>(value)); // byte is 8-bit
             array->set(index, element);
         } break;
-        case 0x55: { // castore
+        case op_castore: {
             std::println("{:{}}", "castore", OPCODE_PRINT_PAD_WIDTH);
 
             auto value = std::get<int32_t>(frame.pop_stack());
@@ -248,7 +345,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             const auto element = static_cast<int32_t>(static_cast<uint16_t>(value)); // char is 16-bit
             array->set(index, element);
         } break;
-        case 0x56: { // sastore
+        case op_sastore: {
             std::println("{:{}}", "sastore", OPCODE_PRINT_PAD_WIDTH);
 
             auto value = std::get<int32_t>(frame.pop_stack());
@@ -262,15 +359,67 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             const auto element = static_cast<int32_t>(static_cast<int16_t>(value)); // short is 16-bit
             array->set(index, element);
         } break;
-        case 0x59: { // dup
+        
+        case op_dup: {
             std::println("{:{}}", "dup", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.peek_stack());
         } break;
-        case 0xB1: { // return
+
+        case op_land: {
+            std::println("{:{}}", "land", OPCODE_PRINT_PAD_WIDTH);
+            auto value2 = std::get<int64_t>(frame.pop_stack());
+            auto value1 = std::get<int64_t>(frame.pop_stack());
+            frame.push_stack(value1& value2);
+        } break;
+
+        case op_lxor: {
+            std::println("{:{}}", "lxor", OPCODE_PRINT_PAD_WIDTH);
+            auto value2 = std::get<int64_t>(frame.pop_stack());
+            auto value1 = std::get<int64_t>(frame.pop_stack());
+            frame.push_stack(value1 ^ value2);
+        } break;
+
+        case op_ifne: {
+            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
+            std::println("{:{}} {:04X}", "ifne", OPCODE_PRINT_PAD_WIDTH, offset);
+            
+            auto value = std::get<int32_t>(frame.pop_stack());
+            if (value != 0) {
+                frame.set_pc(frame.pc() + offset - 3); // -3 to account for the size of the instruction itself
+            }
+        } break;
+
+        case op_ifge: {
+            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
+            std::println("{:{}} {:04X}", "ifge", OPCODE_PRINT_PAD_WIDTH, offset);
+            
+            auto value = std::get<int32_t>(frame.pop_stack());
+            if (value >= 0) {
+                frame.set_pc(frame.pc() + offset - 3); // -3 to account for the size of the instruction itself
+            }
+        } break;
+
+        case op_goto: {
+            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
+            std::println("{:{}} {:04X}", "goto", OPCODE_PRINT_PAD_WIDTH, offset);
+
+            frame.set_pc(frame.pc() + offset - 3); // -3 to account for the size of the instruction itself
+        } break;
+
+        case op_ireturn: {
+            std::println("{:{}}", "ireturn", OPCODE_PRINT_PAD_WIDTH);
+            return frame.pop_stack();
+        }
+
+        case op_areturn: {
+            std::println("{:{}}", "areturn", OPCODE_PRINT_PAD_WIDTH);
+            return frame.pop_stack();
+        }
+        case op_return: {
             std::println("{:{}}", "return", OPCODE_PRINT_PAD_WIDTH);
             return std::nullopt;
         }
-        case 0xB2: { // getstatic
+        case op_getstatic: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "getstatic", OPCODE_PRINT_PAD_WIDTH, index);
 
@@ -289,7 +438,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             }
             frame.push_stack(*slot);
         } break;
-        case 0xB3: { // putstatic
+        case op_putstatic: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "putstatic", OPCODE_PRINT_PAD_WIDTH, index);
 
@@ -309,7 +458,48 @@ std::optional<Value> Interpreter::run(Frame& frame) {
 
             *slot = frame.pop_stack();
         } break;
-        case 0xB6: { // invokevirtual
+        case op_getfield: {
+            const auto index = frame.pop_code_u16();
+            std::println("{:{}} {:04X}", "getfield", OPCODE_PRINT_PAD_WIDTH, index);
+
+            const FieldAndMethodRef field_ref = frame.owner().resolve_field_ref(index);
+            Class* target = (field_ref.class_name == frame.owner().this_name())
+                ? &frame.owner()
+                : vm_.load_class(field_ref.class_name);
+
+            const auto slot = target->find_field_slot(field_ref.name, field_ref.descriptor);
+            if (!slot) {
+                // In a complete VM this would raise NoSuchFieldError.
+                throw std::runtime_error(std::format(
+                    "putfield: no field {}.{}:{}",
+                    field_ref.class_name, field_ref.name, field_ref.descriptor));
+            }
+
+            auto object = std::get<RuntimeObject*>(frame.pop_stack());
+            frame.push_stack(std::get<InstanceData>(object->data).fields[*slot]);
+        } break;
+        case op_putfield: {
+            const auto index = frame.pop_code_u16();
+            std::println("{:{}} {:04X}", "putfield", OPCODE_PRINT_PAD_WIDTH, index);
+
+            const FieldAndMethodRef field_ref = frame.owner().resolve_field_ref(index);
+            Class* target = (field_ref.class_name == frame.owner().this_name())
+                ? &frame.owner()
+                : vm_.load_class(field_ref.class_name);
+            
+            const auto slot = target->find_field_slot(field_ref.name, field_ref.descriptor);
+            if (!slot) {
+                // In a complete VM this would raise NoSuchFieldError.
+                throw std::runtime_error(std::format(
+                    "putfield: no field {}.{}:{}",
+                    field_ref.class_name, field_ref.name, field_ref.descriptor));
+            }
+
+            auto value = frame.pop_stack();
+            auto object = std::get<RuntimeObject*>(frame.pop_stack());
+            std::get<InstanceData>(object->data).fields[*slot] = value;
+        } break;
+        case op_invokevirtual: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "invokevirtual", OPCODE_PRINT_PAD_WIDTH, index);
 
@@ -354,7 +544,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
 
             invoke(*owner, *method, arg_count + 1, frame);
         } break;
-        case 0xB7: { // invokespecial
+        case op_invokespecial: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "invokespecial", OPCODE_PRINT_PAD_WIDTH, index);
 
@@ -374,7 +564,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             const size_t slot_count = count_descriptor_arguments(method->descriptor) + 1;
             invoke(*target, *method, slot_count, frame);
         } break;
-        case 0xB8: { // invokestatic
+        case op_invokestatic: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "invokestatic", OPCODE_PRINT_PAD_WIDTH, index);
 
@@ -394,7 +584,8 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             const size_t slot_count = count_descriptor_arguments(method->descriptor);
             invoke(*target, *method, slot_count, frame);
         } break;
-        case 0xBB: { // new
+
+        case op_new: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "new", OPCODE_PRINT_PAD_WIDTH, index);
 
@@ -407,7 +598,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             RuntimeObject* instance = vm_.heap().new_instance(*target);
             frame.push_stack(instance);
         } break;
-        case 0xBC: { // newarray
+        case op_newarray: {
             auto type = frame.pop_code_u8();
             std::println("{:{}} {:02X}", "newarray", OPCODE_PRINT_PAD_WIDTH, type);
 
@@ -416,7 +607,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
                 vm_.heap().new_primitive_array(static_cast<ElementType>(type), count);
             frame.push_stack(array);
         } break;
-        case 0xBD: { // anewarray
+        case op_anewarray: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "anewarray", OPCODE_PRINT_PAD_WIDTH, index);
 
@@ -431,7 +622,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             RuntimeObject* array = vm_.heap().new_instance_array(*target, count);
             frame.push_stack(array);
         } break;
-        case 0xBE: { // arraylength
+        case op_arraylength: {
             std::println("{:{}}", "arraylength", OPCODE_PRINT_PAD_WIDTH);
 
             auto* reference = std::get<RuntimeObject*>(frame.pop_stack());
@@ -453,11 +644,13 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             }
             frame.push_stack(length);
         } break;
-        case 0xC0: { // checkcast
+
+        case op_checkcast: {
             std::println("{:{}}", "checkcast", OPCODE_PRINT_PAD_WIDTH);
             // NOOP for now
         } break;
-        case 0xC5: { // multianewarray
+
+        case op_multinewarray: {
             const auto index = frame.pop_code_u16();
             auto dimensions = frame.pop_code_u8();
             std::println("{:{}} {:04X} {}", "multianewarray", OPCODE_PRINT_PAD_WIDTH, index, dimensions);
@@ -475,7 +668,15 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             RuntimeObject* array = vm_.heap().new_instance_array(*target, counts[0]);
             frame.push_stack(array);
         } break;
-        case 0xC7: { // ifnonnull
+        case op_ifnull: {
+            const auto offset = frame.pop_code_u16();
+            std::println("{:{}} {:04X}", "ifnull", OPCODE_PRINT_PAD_WIDTH, offset);
+            auto* reference = std::get<RuntimeObject*>(frame.pop_stack());
+            if (reference == nullptr) {
+                frame.set_pc(frame.pc() + offset - 3); // -3 to account for the opcode and offset bytes
+            }
+        } break;
+        case op_ifnonnull: {
             const auto offset = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "ifnonnull", OPCODE_PRINT_PAD_WIDTH, offset);
             auto* reference = std::get<RuntimeObject*>(frame.pop_stack());

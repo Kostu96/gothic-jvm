@@ -1,49 +1,15 @@
 #include "class_loader/class_loader.hpp"
 
-#include "class_loader/native_class_description.hpp"
 #include "runtime/class.hpp"
 
+#include <print>
 #include <stdexcept>
-
-namespace {
-
-std::unordered_map<std::string, NativeClassDescription> native_classes_desc = {
-    { "java/io/DataInputStream", NativeClassDescription::data_input_stream() },
-    { "java/lang/Object", NativeClassDescription::object() },
-    { "java/lang/Class", NativeClassDescription::clazz() },
-    { "java/lang/String", NativeClassDescription::string() },
-    { "java/util/Hashtable", NativeClassDescription::hashtable() },
-    { "java/util/Random", NativeClassDescription::random() },
-    { "java/util/Stack", NativeClassDescription::stack() },
-    { "java/util/Vector", NativeClassDescription::vector() },
-    { "javax/microedition/midlet/MIDlet", NativeClassDescription::midlet() },
-    { "com/nokia/mid/ui/FullCanvas", NativeClassDescription::full_canvas() }
-};
-
-}
 
 ClassLoader::ClassLoader() = default;
 ClassLoader::~ClassLoader() = default;
 
 void ClassLoader::add_classpath_entry(std::filesystem::path dir) {
     classpath_.push_back(std::move(dir));
-}
-
-Class* ClassLoader::load_native(std::string_view binary_name) {
-    if (Class* existing = find_loaded(binary_name)) {
-        return existing;
-    }
-
-    auto it = native_classes_desc.find(std::string(binary_name));
-    if (it == native_classes_desc.end()) {
-        throw std::runtime_error(
-            "ClassLoader: cannot find native class '" + std::string(binary_name) + "'");
-    }
-
-    auto cls = std::make_unique<Class>(it->second);
-    Class* raw = cls.get();
-    loaded_.emplace(std::string(binary_name), std::move(cls));
-    return raw;
 }
 
 Class* ClassLoader::load(std::string_view binary_name) {
@@ -61,7 +27,8 @@ Class* ClassLoader::load(std::string_view binary_name) {
             "ClassLoader: cannot find class '" + std::string(binary_name) + "' on classpath");
     }
 
-    auto cls = std::make_unique<Class>(file.string().c_str());
+    std::println("Loading class: {}", binary_name);
+    auto cls = std::make_unique<Class>(file.string().c_str(), *this);
     Class* raw = cls.get();
     loaded_.emplace(std::string(binary_name), std::move(cls));
     return raw;
