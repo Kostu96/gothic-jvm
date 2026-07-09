@@ -1,9 +1,15 @@
-# gothic-jvm — Codebase Reference (for AI assistants)
+# gothic-jvm — Agent Reference (CLAUDE.md)
 
+> **Audience — agents only.** This file is the technical single-source-of-truth for AI
+> coding agents. The human-facing overview, build/run walkthrough, and motivation live in
+> [README.md](README.md). Keep onboarding prose in README.md; keep precise, terse technical
+> facts (types, signatures, opcode tables, invariants, gaps) here.
+>
 > **Maintenance note:** Keep this file up to date. After every major change to the
 > codebase (new opcodes, new runtime components, new native callbacks, build/test
 > layout changes, or API renames), update the relevant sections below so this file
-> stays an accurate single-source-of-truth and AI tools don't have to re-read every file.
+> stays an accurate single-source-of-truth and agents don't have to re-read every file.
+> If the change is also user-visible (features, how to run), update README.md too.
 
 ## What this is
 
@@ -40,8 +46,8 @@ tests only cover `BinaryReader` and `ClassFile`/`Class` parsing (no interpreter 
 At startup the classpath is assembled from the **current working directory**, not from
 `resources/`:
 
-1. `VM` ctor adds `<cwd>/java_classes` and eagerly loads `java/lang/Object` and
-   `java/lang/String`.
+1. `VM` ctor adds `<cwd>/java_classes` and eagerly loads `java/lang/Class` and
+   `java/lang/String` (`java/lang/Object` is pulled in transitively as their superclass).
 2. `main.cpp` adds either the CLI-provided classpath entries, or (with no extra args)
    `<cwd>/gothic3thebeginning`.
 
@@ -99,7 +105,7 @@ build/                          # generated VS solution/projects + <cwd> copies 
    default main class is `HG`. With no extra args the classpath defaults to
    `<cwd>/gothic3thebeginning`; otherwise each extra arg is added as a classpath entry.
 2. `VM` ctor adds `<cwd>/java_classes` to the classpath and eagerly loads
-   `java/lang/Object` then `java/lang/String`.
+   `java/lang/Class` then `java/lang/String` (`java/lang/Object` loads transitively).
 3. `VM::run()` -> `load` main class -> `initialize_class`, then `new_instance(main)`,
    invokes `<init>()V`, then invokes the MIDlet lifecycle entry `startApp()V` (both via
    `Interpreter::execute` with the receiver passed as the sole argument).
@@ -110,7 +116,7 @@ build/                          # generated VS solution/projects + <cwd> copies 
    call path: native methods call `Method::native_callback(vm, frame)` with the live
    frame; bytecode methods pop args and re-enter `execute`.
 5. `initialize_class` walks the superclass chain first (recursively) and then runs
-   `<clinit>()V` if present, tracking `ClassInitState` (Loaded/Initializing/Initialized/Failed).
+   `<clinit>()V` if present, tracking `Class::InitState` (Loaded/Initializing/Initialized/Failed).
 6. `ClassLoader::load` checks a cache, routes names starting with `[` to `load_array`,
    otherwise resolves `binary/name` -> `<entry>/binary/name.class` across classpath
    entries and constructs a `Class` (which recursively loads its super + interfaces).
@@ -127,22 +133,35 @@ build/                          # generated VS solution/projects + <cwd> copies 
     tags matching the JVM `newarray` atype codes (4..11); `get`/`set` widen to `Value`.
   - `InstanceArrayData` holds `Class& element_type` + `vector<Object*>`.
   - `ClassMirrorData` holds the mirrored `Class&` (the `java/lang/Class` object identity).
-- **Class** (`ClassKind`: `File`, plus per-primitive/ref array kinds): built from a parsed
-  `ClassFile` (File kind) or synthesized for arrays. Holds `super_`/`interfaces_` (as `Class*`),
-  static + instance `Field`s (instance fields get sequential `slot`s continuing the super's
-  count), `Method`s, and a lazily-resolved `runtime_constant_pool_`. Key API:
-  `find_method`, `find_field`, `resolve_class/field/method` (cached CP resolution),
+- **Class** (`Class::Kind`: `Ordinary`, `Array`, `Primitive`): built from a parsed `ClassFile`
+  via `Class(const char* filename, ClassLoader&)` (Ordinary), or synthesized via
+  `Class(std::string name, Class* component_type = nullptr)` — a non-null `component_type`
+  yields an `Array`, null yields a `Primitive`; both are constructed already in
+  `InitState::Initialized`. Holds `super_`/`interfaces_` (`Class*`), `treat_super_specially_`
+  (`ACC_SUPER`), `is_interface_` (`ACC_INTERFACE`), static + instance `Field`s (instance fields
+  get sequential `slot`s continuing the super's `instance_field_count_`), `Method`s, a
+  lazily-resolved `runtime_constant_pool_`, and (arrays only) `component_type_`. Key API:
+  `find_method`/`find_field` (this class only), `resolve_class/field/method` (cached CP
+  resolution; field and method resolution walk the full superclass + superinterface hierarchy),
   `resolve_constant` (ints/longs + interned `String`s), `resolve_class_name`,
-  `resolve_field_ref`/`resolve_method_ref` (string-triples for late binding), and
-  `create_string` (materializes a `java/lang/String` instance — see below).
-- **Method**: `owner` (Class&), `is_native`, name, descriptor, `max_stack`/`max_locals`,
-  `code` span, `exception_table` span, `native_callback` (`std::function<void(VM&, Frame&)>`).
+  `resolve_method_ref` (returns a `FieldAndMethodStringRef {class_name, name, descriptor}` for
+  late binding), `create_string` (materializes a `java/lang/String` — see below), plus
+  predicates/accessors `is_interface()`, `is_primitive()`, `treat_super_specially()`,
+  `component_type()`, `super()`/`super_name()`, `instance_field_count()`,
+  `init_state()`/`set_init_state()`.
+- **Method**: `owner` (Class&), `is_static`, `is_native`, name, descriptor, `num_args` (argument
+  count including `this` for instance methods), `arg_slot_widths` (per-argument local-slot widths
+  incl. the leading `this` slot; `long`/`double` = 2, everything else = 1; computed once at parse
+  time), `max_stack`/`max_locals`, `code` span, `exception_table` span, `native_callback`
+  (`std::function<void(VM&, Frame&)>`). `Interpreter::invoke(method, frame)` pops `num_args`
+  operand-stack entries; `execute` lays arguments into locals using `arg_slot_widths`.
 - **Field**: `owner`, `is_static`, name, descriptor, `Value value` (static storage), `slot` (instance index).
 - **Heap**: owns all `Object`s via `unique_ptr`; `new_instance`, `new_primitive_array`,
   `new_instance_array`, and `class_object_for(Class&)` which lazily creates and caches one
   canonical `java/lang/Class` mirror per `Class` (stable identity for `getClass()`).
 - **Frame**: `owner()`/`method()`, `locals()`, `operand_stack()`, `get_pc()`, `branch(offset)`,
-  `pop_code_u8/u16`, `push/pop/peek_stack`. (No `set_pc`; jumps go through `branch`.)
+  `pop_code_u8/u16`, `push_stack`/`pop_stack`/`peek_stack(index = 0)` (peek is depth-indexed
+  from the top of the stack). (No `set_pc`; jumps go through `branch`.)
 - **Runtime constant pool** (`runtime_constant_pool_entry.hpp`): `RuntimeClassInfo`,
   `RuntimeFieldRefInfo`, `RuntimeMethodRefInfo` are populated on first resolution and
   cache the resolved pointer. `RuntimeStringInfo`/`RuntimeInterfaceMethodRefInfo` exist in
@@ -171,12 +190,13 @@ Branches: `ifne` (0x9A), `iflt` (0x9B), `ifge` (0x9C), `ifle` (0x9E),
 `goto` (0xA7), `ifnull` (0xC6), `ifnonnull` (0xC7).
 Returns: `ireturn` (0xAC), `areturn` (0xB0), `return` (0xB1).
 Fields/calls: `getstatic` (0xB2), `putstatic` (0xB3), `getfield` (0xB4), `putfield` (0xB5),
-`invokevirtual` (0xB6, virtual dispatch via `select_virtual_method` up the superclass chain;
-a `ClassMirrorData` receiver dispatches against `java/lang/Class`), `invokespecial` (0xB7),
-`invokestatic` (0xB8, triggers `initialize_class`).
+`invokevirtual` (0xB6, virtual dispatch by walking `find_method` up the receiver's superclass
+chain; a `ClassMirrorData` receiver dispatches against `java/lang/Class`), `invokespecial`
+(0xB7, resolved via `resolve_method`; throws for the not-yet-implemented `ACC_SUPER`
+super-invoke case), `invokestatic` (0xB8, triggers `initialize_class`).
 Object/array: `new` (0xBB), `newarray` (0xBC), `anewarray` (0xBD), `arraylength` (0xBE),
-`checkcast` (0xC0, currently a no-op), `multianewarray` (0xC5, only the outermost
-dimension is allocated).
+`checkcast` (0xC0, resolves the class but performs no type check), `multianewarray` (0xC5,
+recursively allocates every requested dimension via a self-recursive lambda).
 
 Notes:
 - `op_lload` (0x16) is declared in `opcodes.hpp` but has no dispatch case yet.
@@ -209,21 +229,25 @@ Currently registered:
   (modified) UTF-8.
 
 ## Known gaps / WIP / dead code (as of writing)
-- **Array classes are incomplete/likely broken:** `Class(std::string array_name)` never sets
-  `kind_` (stays default `ClassKind::File`), so `this_name()` would dereference the null
-  `class_file_` for an array class. The per-primitive/ref `ClassKind` array enumerators are
-  defined but unused.
+- **Array/primitive classes now work:** `Class(std::string name, Class* component_type)` sets
+  `kind_` to `Array` (component non-null) or `Primitive` (null) and starts in
+  `InitState::Initialized`. `ClassLoader::load_array` synthesizes the component chain
+  (nested `[`, `L...;` refs, and cached primitive classes keyed by their Java name). Type
+  checks for `checkcast`/`instanceof` are still not enforced, though.
 - **Constant pool coverage is partial:** `ClassFile` parses only Utf8/Integer/Long/Class/
   String/Field/Method/InterfaceMethod/NameAndType tags. `Float` (tag 4) and `Double` (tag 6)
   are **not** parsed and will throw "Unsupported constant pool tag". `get_constant` only
   returns Integer/Long (and monostate for String, which `resolve_constant` then interns).
+- **`invokespecial` `ACC_SUPER` is unimplemented:** a non-constructor, non-interface call that
+  targets the direct superclass of an `ACC_SUPER` class throws
+  "invokespecial: ACC_SUPER semantics not implemented yet".
 - **Dead / commented code:** `decode_modified_utf8` in `class_file.cpp` is defined but never
-  called; a commented-out `java_lang_class_new_instance` native and a commented-out
-  `Class::find_field_slot` remain; `frame.cpp` has a redundant self-include; several
-  `TODO(Kostu)` markers (e.g. `frame.hpp` include for the `currentTimeMillis` native).
-- `checkcast` is a no-op; no real exception objects/handler-table dispatch (errors throw
-  `std::runtime_error`); no `NoSuchMethodError`/`AbstractMethodError` modeling.
-- `multianewarray` (0xC5) allocates only the outermost dimension.
+  called; a commented-out `java_lang_class_new_instance` native remains; several
+  `TODO(Kostu)` markers persist (e.g. the `frame.hpp` include for the `currentTimeMillis`
+  native in `class.cpp`).
+- `checkcast` (0xC0) resolves the target class but is otherwise a no-op; no real exception
+  objects/handler-table dispatch (errors throw `std::runtime_error`); no
+  `NoSuchMethodError`/`AbstractMethodError` modeling.
 - `RuntimeStringInfo` / `RuntimeInterfaceMethodRefInfo` cache slots are declared but not used;
   interface method invocation (`invokeinterface`) is not implemented.
 - No garbage collection; the heap only grows. Most JVM opcodes remain unimplemented.

@@ -19,7 +19,7 @@ public:
     Interpreter(const Interpreter&) = delete;
     Interpreter& operator=(const Interpreter&) = delete;
 private:
-    void invoke(const Method& method, size_t arg_count, Frame& frame);
+    void invoke(const Method& method, Frame& frame);
 
     std::optional<Value> run(Frame& frame);
 

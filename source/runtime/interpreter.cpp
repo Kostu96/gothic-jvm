@@ -31,35 +31,6 @@ PrimitiveArrayData::ElementType primitive_array_element_type(std::string_view pr
         "multianewarray: unsupported primitive component '" + std::string(primitive_name) + "'");
 }
 
-size_t count_descriptor_arguments(std::string_view descriptor) {
-    size_t i = descriptor.find('(');
-    if (i == std::string_view::npos) {
-        return 0;
-    }
-    ++i; // skip '('
-
-    size_t count = 0;
-    while (i < descriptor.size() && descriptor[i] != ')') {
-        switch (descriptor[i]) {
-        case '[': // array dimension marker; the component type follows
-            ++i;
-            continue;
-        case 'L': // object reference: L<classname>;
-            i = descriptor.find(';', i);
-            if (i == std::string_view::npos) {
-                return count; // malformed descriptor
-            }
-            ++i;
-            break;
-        default: // primitive: B C D F I J S Z
-            ++i;
-            break;
-        }
-        ++count;
-    }
-    return count;
-}
-
 }
 
 std::optional<Value> Interpreter::execute(const Method& method,
@@ -70,21 +41,29 @@ std::optional<Value> Interpreter::execute(const Method& method,
     Frame frame(method.owner, method);
 
     auto& locals = frame.locals();
-    const size_t to_copy = std::min(args.size(), locals.size());
-    std::copy_n(args.begin(), to_copy, locals.begin());
+
+    // Each argument maps onto locals using its precomputed slot width (long/double
+    // occupy two slots); arg_slot_widths already includes the leading `this` slot.
+    size_t local_index = 0;
+    for (size_t i = 0; i < args.size() && i < method.arg_slot_widths.size(); ++i) {
+        if (local_index < locals.size()) {
+            locals[local_index] = args[i];
+        }
+        local_index += method.arg_slot_widths[i];
+    }
 
     return run(frame);
 }
 
-void Interpreter::invoke(const Method& method, size_t arg_count, Frame& frame) {
+void Interpreter::invoke(const Method& method, Frame& frame) {
     if (method.is_native) {
         std::println(
             "Interpreter: executing native {}.{}{}", method.owner.this_name(), method.name, method.descriptor);
         method.native_callback(vm_, frame);
     }
     else {
-        std::vector<Value> args(arg_count);
-        for (size_t i = arg_count; i > 0; --i) {
+        std::vector<Value> args(method.num_args);
+        for (size_t i = method.num_args; i > 0; --i) {
             args[i - 1] = frame.pop_stack();
         }
         auto ret = execute(method, args);
@@ -636,8 +615,8 @@ std::optional<Value> Interpreter::run(Frame& frame) {
 
             const Method& resolved_method = frame.owner().resolve_method(index, vm_.class_loader());
 
-            const size_t arg_count = count_descriptor_arguments(resolved_method.descriptor);
-            auto* receiver = std::get<Object*>(frame.peek_stack(arg_count));
+            // num_args includes `this`; the receiver sits just below the declared arguments.
+            auto* receiver = std::get<Object*>(frame.peek_stack(resolved_method.num_args - 1));
             if (receiver == nullptr) {
                 // In a complete VM this would raise NullPointerException.
                 throw std::runtime_error(std::format(
@@ -674,7 +653,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
                     resolved_method.owner.this_name(), resolved_method.name, resolved_method.descriptor));
             }
 
-            invoke(*method, arg_count + 1, frame);
+            invoke(*method, frame);
         } break;
         case op_invokespecial: {
             const auto index = frame.pop_code_u16();
@@ -688,8 +667,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
                 throw std::runtime_error("invokespecial: ACC_SUPER semantics not implemented yet");
             }
 
-            const size_t arg_count = count_descriptor_arguments(method.descriptor) + 1;
-            invoke(method, arg_count, frame);
+            invoke(method, frame);
         } break;
         case op_invokestatic: {
             const auto index = frame.pop_code_u16();
@@ -703,8 +681,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             }
 
             vm_.initialize_class(method.owner);
-            const size_t arg_count = count_descriptor_arguments(method.descriptor);
-            invoke(method, arg_count, frame);
+            invoke(method, frame);
         } break;
 
         case op_new: {
@@ -783,16 +760,11 @@ std::optional<Value> Interpreter::run(Frame& frame) {
                 counts[i] = std::get<int32_t>(frame.pop_stack());
             }
 
-            // Recursively allocate `dimensions` levels. Each level's component is the current
-            // array class's component type: a reference component yields an instance array that
-            // we recurse into, while a primitive component yields the leaf primitive array (e.g.
-            // the int[] in [[[I). Dimensions the descriptor allows but `dimensions` omits are
-            // left as null references.
             auto allocate =
                 [&](this const auto& self, Class& array_class, int level) -> Object* {
                 Class& component = *array_class.component_type();
 
-                if (component.is_primitive()) {
+                if (component.kind() == Class::Kind::Primitive) {
                     return vm_.heap().new_primitive_array(
                         primitive_array_element_type(component.this_name()), counts[level]);
                 }

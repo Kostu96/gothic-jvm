@@ -30,6 +30,8 @@ struct Method {
     bool is_native;
     std::string_view name;
     std::string_view descriptor;
+    uint16_t num_args;                    // argument count, including `this` for instance methods
+    std::vector<uint8_t> arg_slot_widths; // local slots per argument (incl. `this`); long/double occupy 2
     uint16_t max_stack;
     uint16_t max_locals;
     std::span<const std::byte> code;
@@ -56,6 +58,7 @@ public:
     Class(const char* filename, ClassLoader& class_loader);
     explicit Class(std::string name, Class* component_type = nullptr);
 
+    Kind kind() const noexcept { return kind_; }
     InitState init_state() const noexcept { return init_state_; }
     void set_init_state(InitState state) noexcept { init_state_ = state; }
 
@@ -64,7 +67,6 @@ public:
 
     Class* super() const { return super_; }
     Class* component_type() const noexcept { return component_type_; }
-    bool is_primitive() const noexcept { return kind_ == Kind::Primitive; }
 
     std::string_view this_name() const { return this_name_; }
     std::string_view super_name() const { return super_ ? super_->this_name() : ""; }
@@ -80,8 +82,6 @@ public:
 
     Object* create_string(VM& vm, std::string_view str) const;
     Value resolve_constant(VM& vm, uint16_t constant_pool_index) const;
-    std::string_view resolve_class_name(uint16_t constant_pool_index) const;
-    FieldAndMethodStringRef resolve_method_ref(uint16_t constant_pool_index) const;
 
     Class(const Class&) = delete;
     Class& operator=(const Class&) = delete;

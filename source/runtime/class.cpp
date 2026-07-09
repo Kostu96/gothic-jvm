@@ -16,6 +16,45 @@ constexpr uint16_t ACC_SUPER =     0x0020;
 constexpr uint16_t ACC_INTERFACE = 0x0200;
 constexpr uint16_t ACC_NATIVE =    0x0100;
 
+std::vector<uint8_t> compute_arg_slot_widths(std::string_view descriptor, bool is_static) {
+    std::vector<uint8_t> widths;
+    if (!is_static) {
+        widths.push_back(1);
+    }
+
+    size_t i = descriptor.find('(');
+    if (i == std::string_view::npos) {
+        return widths;
+    }
+    ++i; // skip '('
+
+    while (i < descriptor.size() && descriptor[i] != ')') {
+        bool is_array = false;
+        while (i < descriptor.size() && descriptor[i] == '[') {
+            is_array = true;
+            ++i;
+        }
+        if (i >= descriptor.size()) {
+            break; // malformed descriptor
+        }
+
+        const char type = descriptor[i];
+        if (type == 'L') {
+            i = descriptor.find(';', i);
+            if (i == std::string_view::npos) {
+                break; // malformed descriptor
+            }
+            ++i;
+        }
+        else {
+            ++i;
+        }
+
+        widths.push_back(!is_array && (type == 'J' || type == 'D') ? 2 : 1);
+    }
+    return widths;
+}
+
 Value default_field_value(std::string_view descriptor) {
     if (!descriptor.empty()) {
         switch (descriptor.front()) {
@@ -182,6 +221,8 @@ Class::Class(const char* filename, ClassLoader& class_loader) :
         method.is_native = (method_info.access_flags & ACC_NATIVE) != 0;
         method.name = class_file_->constant_pool_utf8(method_info.name_index);
         method.descriptor = class_file_->constant_pool_utf8(method_info.descriptor_index);
+        method.arg_slot_widths = compute_arg_slot_widths(method.descriptor, method.is_static);
+        method.num_args = static_cast<uint16_t>(method.arg_slot_widths.size());
 
         if (method.is_native) {
             std::string key = std::string(this_name()) + "." + std::string(method.name) + std::string(method.descriptor);
@@ -400,12 +441,4 @@ Value Class::resolve_constant(VM& vm, uint16_t constant_pool_index) const {
     }
 
     return value;
-}
-
-std::string_view Class::resolve_class_name(uint16_t constant_pool_index) const {
-    return class_file_->get_class_name(constant_pool_index);
-}
-
-FieldAndMethodStringRef Class::resolve_method_ref(uint16_t constant_pool_index) const {
-    return class_file_->get_method_string_ref(constant_pool_index);
 }

@@ -49,6 +49,12 @@ Class& ClassLoader::load(std::string_view binary_name) {
 
     std::println("Loading class: {}", binary_name);
     auto cls = std::make_unique<Class>(file.string().c_str(), *this);
+    if (cls->this_name() != binary_name) {
+        throw std::runtime_error(
+            "ClassLoader: class name mismatch for '" + std::string(binary_name) +
+            "'; expected '" + std::string(cls->this_name()) + "'");
+    }
+
     Class& raw = *cls;
     loaded_.emplace(std::string(binary_name), std::move(cls));
     return raw;
