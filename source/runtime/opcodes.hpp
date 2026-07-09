@@ -25,6 +25,7 @@ constexpr uint8_t op_ldc2_w = 0x14;
 constexpr uint8_t op_iload = 0x15;
 constexpr uint8_t op_lload = 0x16;
 
+constexpr uint8_t op_aload = 0x19;
 constexpr uint8_t op_iload_0 = 0x1A;
 constexpr uint8_t op_iload_1 = 0x1B;
 constexpr uint8_t op_iload_2 = 0x1C;
@@ -40,6 +41,16 @@ constexpr uint8_t op_aload_1 = 0x2B;
 constexpr uint8_t op_aload_2 = 0x2C;
 constexpr uint8_t op_aload_3 = 0x2D;
 
+constexpr uint8_t op_caload = 0x34;
+
+constexpr uint8_t op_istore = 0x36;
+
+constexpr uint8_t op_astore = 0x3A;
+constexpr uint8_t op_istore_0 = 0x3B;
+constexpr uint8_t op_istore_1 = 0x3C;
+constexpr uint8_t op_istore_2 = 0x3D;
+constexpr uint8_t op_istore_3 = 0x3E;
+
 constexpr uint8_t op_astore_0 = 0x4B;
 constexpr uint8_t op_astore_1 = 0x4C;
 constexpr uint8_t op_astore_2 = 0x4D;
@@ -53,13 +64,28 @@ constexpr uint8_t op_sastore = 0x56;
 
 constexpr uint8_t op_dup = 0x59;
 
+constexpr uint8_t op_iadd = 0x60;
+
+constexpr uint8_t op_isub = 0x64;
+
+constexpr uint8_t op_imul = 0x68;
+
+constexpr uint8_t op_idiv = 0x6C;
+
 constexpr uint8_t op_land = 0x7F;
 
 constexpr uint8_t op_lxor = 0x83;
+constexpr uint8_t op_iinc = 0x84;
 
 constexpr uint8_t op_ifne = 0x9A;
-
+constexpr uint8_t op_iflt = 0x9B;
 constexpr uint8_t op_ifge = 0x9C;
+
+constexpr uint8_t op_ifle = 0x9E;
+constexpr uint8_t op_if_icmpeq = 0x9F;
+constexpr uint8_t op_if_icmpne = 0xA0;
+constexpr uint8_t op_if_icmplt = 0xA1;
+constexpr uint8_t op_if_icmpge = 0xA2;
 
 constexpr uint8_t op_goto = 0xA7;
 
@@ -82,6 +108,6 @@ constexpr uint8_t op_arraylength = 0xBE;
 
 constexpr uint8_t op_checkcast = 0xC0;
 
-constexpr uint8_t op_multinewarray = 0xC5;
+constexpr uint8_t op_multianewarray = 0xC5;
 constexpr uint8_t op_ifnull = 0xC6;
 constexpr uint8_t op_ifnonnull = 0xC7;

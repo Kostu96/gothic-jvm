@@ -11,28 +11,6 @@ set(APP_LIB_SOURCES
     "source/class_loader/class_loader.cpp"
     "source/class_loader/class_loader.hpp"
     "source/class_loader/constant_pool_entry.hpp"
-#    "source/class_loader/native_class_description.cpp"
-#    "source/class_loader/native_class_description.hpp"
-#    "source/native_classes/io/data_input_stream.cpp"
-#    "source/native_classes/io/data_input_stream.hpp"
-#    "source/native_classes/lang/clazz.cpp"
-#    "source/native_classes/lang/clazz.hpp"
-#    "source/native_classes/lang/object.cpp"
-#    "source/native_classes/lang/object.hpp"
-#    "source/native_classes/lang/string.cpp"
-#    "source/native_classes/lang/string.hpp"
-#    "source/native_classes/midlet/midlet.cpp"
-#    "source/native_classes/midlet/midlet.hpp"
-#    "source/native_classes/ui/full_canvas.cpp"
-#    "source/native_classes/ui/full_canvas.hpp"
-#    "source/native_classes/util/hashtable.cpp"
-#    "source/native_classes/util/hashtable.hpp"
-#    "source/native_classes/util/random.cpp"
-#    "source/native_classes/util/random.hpp"
-#    "source/native_classes/util/stack.cpp"
-#    "source/native_classes/util/stack.hpp"
-#    "source/native_classes/util/vector.cpp"
-#    "source/native_classes/util/vector.hpp"
     "source/runtime/class.hpp"
     "source/runtime/class.cpp"
     "source/runtime/frame.hpp"
@@ -43,8 +21,8 @@ set(APP_LIB_SOURCES
     "source/runtime/interpreter.cpp"
     "source/runtime/opcodes.hpp"
     "source/runtime/runtime_constant_pool_entry.hpp"
-    "source/runtime/runtime_object.hpp"
-    "source/runtime/runtime_object.cpp"
+    "source/runtime/object.hpp"
+    "source/runtime/object.cpp"
     "source/runtime/value.hpp"
     "source/runtime/vm.hpp"
     "source/runtime/vm.cpp"
@@ -61,6 +39,19 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/source PREFIX source FILES ${APP_L
 add_executable(app "source/main.cpp")
 target_link_libraries(app PRIVATE app_lib)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/source PREFIX source FILES "source/main.cpp")
+
+# Copy *.class files from java_classes into the build tree (mirroring the directory
+# structure) after building app. Existing files are replaced; others are left as is.
+file(GLOB_RECURSE APP_CLASS_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/java_classes
+    ${CMAKE_CURRENT_SOURCE_DIR}/java_classes/*.class)
+foreach(_class_file IN LISTS APP_CLASS_FILES)
+    add_custom_command(TARGET app POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_CURRENT_SOURCE_DIR}/java_classes/${_class_file}
+            ${CMAKE_BINARY_DIR}/java_classes/${_class_file}
+        VERBATIM
+    )
+endforeach()
 
 enable_testing()
 

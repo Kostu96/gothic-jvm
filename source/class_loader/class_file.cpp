@@ -24,6 +24,50 @@ std::vector<std::byte> read_file(const char* filename) {
     return buffer;
 }
 
+std::u16string decode_modified_utf8(std::string_view input) {
+    std::u16string result;
+    result.reserve(input.size());
+
+    size_t i = 0;
+
+    while (i < input.size()) {
+        uint8_t b0 = static_cast<uint8_t>(input[i++]);
+
+        if ((b0 & 0x80) == 0) {
+            // 1-byte ASCII (except 0x00, which should never appear in MUTF-8)
+            result.push_back(static_cast<char16_t>(b0));
+        }
+        else if ((b0 & 0xE0) == 0xC0) {
+            if (i >= input.size()) throw std::runtime_error("Truncated MUTF-8");
+
+            uint8_t b1 = static_cast<uint8_t>(input[i++]);
+
+            if ((b1 & 0xC0) != 0x80) throw std::runtime_error("Invalid MUTF-8");
+
+            uint16_t ch = ((b0 & 0x1F) << 6) | (b1 & 0x3F);
+
+            result.push_back(static_cast<char16_t>(ch));
+        }
+        else if ((b0 & 0xF0) == 0xE0) {
+            if (i + 1 >= input.size()) throw std::runtime_error("Truncated MUTF-8");
+
+            uint8_t b1 = static_cast<uint8_t>(input[i++]);
+            uint8_t b2 = static_cast<uint8_t>(input[i++]);
+
+            if ((b1 & 0xC0) != 0x80 || (b2 & 0xC0) != 0x80) throw std::runtime_error("Invalid MUTF-8");
+
+            uint16_t ch = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F);
+
+            result.push_back(static_cast<char16_t>(ch));
+        }
+        else {
+            throw std::runtime_error("Invalid MUTF-8 byte");
+        }
+    }
+
+    return result;
+}
+
 }
 
 ClassFile::ClassFile(const char* filename) {
@@ -105,7 +149,7 @@ ClassFile::ClassFile(const char* filename) {
             attributes[j].name_index = reader.read_u16();
             uint32_t length = reader.read_u32();
 
-            if (get_utf8(attributes[j].name_index) == "Code") {
+            if (constant_pool_utf8(attributes[j].name_index) == "Code") {
                 CodeAttributeInfo code_info;
                 code_info.max_stack = reader.read_u16();
                 code_info.max_locals = reader.read_u16();
@@ -161,147 +205,54 @@ ClassFile::ClassFile(const char* filename) {
     }*/
 }
 
-std::string_view ClassFile::get_utf8(uint16_t constant_pool_index) const {
-    if (constant_pool_index == 0 || constant_pool_index >= constant_pool_.size()) {
-        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(constant_pool_index));
-    }
-
-    const auto* utf8_info = std::get_if<Utf8Info>(&constant_pool_[constant_pool_index]);
-    if (!utf8_info) {
-        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(constant_pool_index) + " is not a Utf8");
-    }
-
-    return utf8_info->value;
+std::string_view ClassFile::get_class_name(uint16_t index) const {
+    const auto& class_info = constant_pool_at<ClassInfo>(index);
+    return constant_pool_utf8(class_info.name_index);
 }
 
-int32_t ClassFile::get_integer(uint16_t constant_pool_index) const {
-    if (constant_pool_index == 0 || constant_pool_index >= constant_pool_.size()) {
-        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(constant_pool_index));
-    }
-
-    const auto* integer_info = std::get_if<IntegerInfo>(&constant_pool_[constant_pool_index]);
-    if (!integer_info) {
-        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(constant_pool_index) + " is not an Integer");
-    }
-
-    return integer_info->value;
+std::string_view ClassFile::get_string(uint16_t index) const {
+    const auto& string_info = constant_pool_at<StringInfo>(index);
+    return constant_pool_utf8(string_info.string_index);
 }
 
-int64_t ClassFile::get_long(uint16_t constant_pool_index) const {
-    if (constant_pool_index == 0 || constant_pool_index >= constant_pool_.size()) {
-        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(constant_pool_index));
-    }
-
-    const auto* long_info = std::get_if<LongInfo>(&constant_pool_[constant_pool_index]);
-    if (!long_info) {
-        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(constant_pool_index) + " is not a Long");
-    }
-
-    return long_info->value;
-}
-
-std::string_view ClassFile::get_class_name(uint16_t constant_pool_index) const {
-    if (constant_pool_index == 0 || constant_pool_index >= constant_pool_.size()) {
-        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(constant_pool_index));
-    }
-
-    const auto* class_info = std::get_if<ClassInfo>(&constant_pool_[constant_pool_index]);
-    if (!class_info) {
-        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(constant_pool_index) + " is not a Class");
-    }
-
-    return get_utf8(class_info->name_index);
-}
-
-std::string_view ClassFile::get_string(uint16_t constant_pool_index) const {
-    if (constant_pool_index == 0 || constant_pool_index >= constant_pool_.size()) {
-        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(constant_pool_index));
-    }
-
-    const auto* string_info = std::get_if<StringInfo>(&constant_pool_[constant_pool_index]);
-    if (!string_info) {
-        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(constant_pool_index) +
-                                 " is not a String");
-    }
-
-    return get_utf8(string_info->string_index);
-}
-
-FieldAndMethodRef ClassFile::get_field_ref(uint16_t constant_pool_index) const {
-    if (constant_pool_index == 0 || constant_pool_index >= constant_pool_.size()) {
-        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(constant_pool_index));
-    }
-
-    const auto* field_ref = std::get_if<FieldRefInfo>(&constant_pool_[constant_pool_index]);
-    if (!field_ref) {
-        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(constant_pool_index) + " is not a Fieldref");
-    }
-
-    if (field_ref->name_and_type_index == 0 || field_ref->name_and_type_index >= constant_pool_.size()) {
-        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(field_ref->name_and_type_index));
-    }
-
-    const auto* name_and_type = std::get_if<NameAndTypeInfo>(&constant_pool_[field_ref->name_and_type_index]);
-    if (!name_and_type) {
-        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(field_ref->name_and_type_index) + " is not a NameAndType");
-    }
-
-    return FieldAndMethodRef{
-        get_class_name(field_ref->class_index),
-        get_utf8(name_and_type->name_index),
-        get_utf8(name_and_type->descriptor_index)
+std::pair<std::string_view, std::string_view> ClassFile::get_name_and_type(uint16_t constant_pool_index) const {
+    const auto& name_and_type_info = constant_pool_at<NameAndTypeInfo>(constant_pool_index);
+    return std::pair<std::string_view, std::string_view>{
+        constant_pool_utf8(name_and_type_info.name_index),
+        constant_pool_utf8(name_and_type_info.descriptor_index)
     };
 }
 
-FieldAndMethodRef ClassFile::get_method_ref(uint16_t constant_pool_index) const {
-    if (constant_pool_index == 0 || constant_pool_index >= constant_pool_.size()) {
-        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(constant_pool_index));
-    }
+FieldAndMethodStringRef ClassFile::get_field_string_ref(uint16_t constant_pool_index) const {
+    const auto& field_ref_info = constant_pool_at<FieldRefInfo>(constant_pool_index);
+    const auto& name_and_type_info = constant_pool_at<NameAndTypeInfo>(field_ref_info.name_and_type_index);
 
-    const auto* method_ref = std::get_if<MethodRefInfo>(&constant_pool_[constant_pool_index]);
-    if (!method_ref) {
-        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(constant_pool_index) + " is not a Methodref");
-    }
-
-    if (method_ref->name_and_type_index == 0 || method_ref->name_and_type_index >= constant_pool_.size()) {
-        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(method_ref->name_and_type_index));
-    }
-
-    const auto* name_and_type = std::get_if<NameAndTypeInfo>(&constant_pool_[method_ref->name_and_type_index]);
-    if (!name_and_type) {
-        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(method_ref->name_and_type_index) + " is not a NameAndType");
-    }
-
-    return FieldAndMethodRef{
-        get_class_name(method_ref->class_index),
-        get_utf8(name_and_type->name_index),
-        get_utf8(name_and_type->descriptor_index)
+    return FieldAndMethodStringRef{
+        get_class_name(field_ref_info.class_index),
+        constant_pool_utf8(name_and_type_info.name_index),
+        constant_pool_utf8(name_and_type_info.descriptor_index)
     };
 }
 
-FieldAndMethodRef ClassFile::get_interface_method_ref(uint16_t constant_pool_index) const {
-    if (constant_pool_index == 0 || constant_pool_index >= constant_pool_.size()) {
-        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(constant_pool_index));
-    }
+FieldAndMethodStringRef ClassFile::get_method_string_ref(uint16_t constant_pool_index) const {
+    const auto& method_ref_info = constant_pool_at<MethodRefInfo>(constant_pool_index);
+    const auto& name_and_type_info = constant_pool_at<NameAndTypeInfo>(method_ref_info.name_and_type_index);
 
-    const auto* interface_method_ref = std::get_if<InterfaceMethodRefInfo>(&constant_pool_[constant_pool_index]);
-    if (!interface_method_ref) {
-        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(constant_pool_index) + " is not an InterfaceMethodref");
-    }
+    return FieldAndMethodStringRef{
+        get_class_name(method_ref_info.class_index),
+        constant_pool_utf8(name_and_type_info.name_index),
+        constant_pool_utf8(name_and_type_info.descriptor_index)
+    };
+}
 
-    if (interface_method_ref->name_and_type_index == 0 || interface_method_ref->name_and_type_index >= constant_pool_.size()) {
-        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(interface_method_ref->name_and_type_index));
-    }
+FieldAndMethodStringRef ClassFile::get_interface_method_string_ref(uint16_t constant_pool_index) const {
+    const auto& interface_method_ref_info = constant_pool_at<InterfaceMethodRefInfo>(constant_pool_index);
+    const auto& name_and_type_info = constant_pool_at<NameAndTypeInfo>(interface_method_ref_info.name_and_type_index);
 
-    const auto* name_and_type = std::get_if<NameAndTypeInfo>(&constant_pool_[interface_method_ref->name_and_type_index]);
-    if (!name_and_type) {
-        throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(interface_method_ref->name_and_type_index) + " is not a NameAndType");
-    }
-
-    return FieldAndMethodRef{
-        get_class_name(interface_method_ref->class_index),
-        get_utf8(name_and_type->name_index),
-        get_utf8(name_and_type->descriptor_index)
+    return FieldAndMethodStringRef{
+        get_class_name(interface_method_ref_info.class_index),
+        constant_pool_utf8(name_and_type_info.name_index),
+        constant_pool_utf8(name_and_type_info.descriptor_index)
     };
 }
 
@@ -316,9 +267,7 @@ Value ClassFile::get_constant(uint16_t constant_pool_index) const {
             return Value(entry.value);
         }
         else if constexpr (std::is_same_v<T, StringInfo>) {
-            auto str = get_utf8(entry.string_index);
-            // In a complete VM, this would create a new String object.
-            return Value(nullptr);
+            return Value();
         }
         else {
             throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(constant_pool_index) +

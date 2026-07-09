@@ -20,15 +20,15 @@ public:
     std::vector<Value>& operand_stack() noexcept { return operand_stack_; }
     const std::vector<Value>& operand_stack() const noexcept { return operand_stack_; }
 
-    size_t pc() const noexcept { return pc_; }
-    void set_pc(size_t pc) noexcept { pc_ = pc; }
+    size_t get_pc() const noexcept { return pc_; }
+    void branch(size_t offset) noexcept { pc_ += offset; }
 
     std::uint8_t pop_code_u8();
     std::uint16_t pop_code_u16();
 
     void push_stack(Value value) { operand_stack_.push_back(value); }
     Value pop_stack();
-    Value peek_stack() const { return operand_stack_.back(); }
+    Value peek_stack(int32_t index = 0) const { return operand_stack_[operand_stack_.size() - 1 - index]; }
 
     Frame(const Frame&) = delete;
     Frame& operator=(const Frame&) = delete;

@@ -1,7 +1,6 @@
 #include "runtime/frame.hpp"
 
 #include "runtime/class.hpp"
-#include "frame.hpp"
 
 Frame::Frame(Class& owner, const Method& method) :
     owner_(owner),

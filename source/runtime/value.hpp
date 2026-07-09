@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <variant>
 
-struct RuntimeObject;
+struct Object;
 
 using Value = std::variant<
     std::monostate, // unset slot
@@ -10,5 +10,5 @@ using Value = std::variant<
     int64_t,        // long
     float,          // float
     double,         // double
-    RuntimeObject*  // reference (nullptr == null)
+    Object*         // reference (nullptr == null)
 >;

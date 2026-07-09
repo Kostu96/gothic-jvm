@@ -1,4 +1,6 @@
 #pragma once
+#include "runtime/value.hpp"
+
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -6,7 +8,7 @@
 
 class Class;
 class Runtime;
-struct RuntimeObject;
+struct Object;
 struct Field;
 struct Method;
 struct InterfaceMethod;
@@ -16,7 +18,7 @@ struct RuntimeClassInfo {
 };
 
 struct RuntimeStringInfo {
-    RuntimeObject* resolved = nullptr;
+    Object* resolved = nullptr;
 };
 
 struct RuntimeFieldRefInfo {
@@ -24,7 +26,7 @@ struct RuntimeFieldRefInfo {
 };
 
 struct RuntimeMethodRefInfo {
-    Method* resolved = nullptr;
+    const Method* resolved = nullptr;
 };
 
 struct RuntimeInterfaceMethodRefInfo {

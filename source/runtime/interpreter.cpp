@@ -3,8 +3,8 @@
 #include "runtime/class.hpp"
 #include "runtime/frame.hpp"
 #include "runtime/heap.hpp"
+#include "runtime/object.hpp"
 #include "runtime/opcodes.hpp"
-#include "runtime/runtime_object.hpp"
 #include "runtime/vm.hpp"
 
 #include <algorithm>
@@ -16,6 +16,20 @@
 namespace {
 
 constexpr int OPCODE_PRINT_PAD_WIDTH = 16;
+
+PrimitiveArrayData::ElementType primitive_array_element_type(std::string_view primitive_name) {
+    using enum PrimitiveArrayData::ElementType;
+    if (primitive_name == "boolean") return Boolean;
+    if (primitive_name == "char")    return Char;
+    if (primitive_name == "float")   return Float;
+    if (primitive_name == "double")  return Double;
+    if (primitive_name == "byte")    return Byte;
+    if (primitive_name == "short")   return Short;
+    if (primitive_name == "int")     return Int;
+    if (primitive_name == "long")    return Long;
+    throw std::runtime_error(
+        "multianewarray: unsupported primitive component '" + std::string(primitive_name) + "'");
+}
 
 size_t count_descriptor_arguments(std::string_view descriptor) {
     size_t i = descriptor.find('(');
@@ -46,29 +60,14 @@ size_t count_descriptor_arguments(std::string_view descriptor) {
     return count;
 }
 
-const Method* select_virtual_method(VM& vm, Class& start, std::string_view name,
-                                    std::string_view descriptor, Class*& owner) {
-    for (Class* c = &start; c != nullptr; ) {
-        if (const Method* method = c->find_method(name, descriptor)) {
-            owner = c;
-            return method;
-        }
-        const std::string_view super = c->super_name();
-        c = super.empty() ? nullptr : vm.load_class(super);
-    }
-    owner = nullptr;
-    return nullptr;
 }
 
-}
-
-std::optional<Value> Interpreter::execute(Class& owner,
-                                          const Method& method,
+std::optional<Value> Interpreter::execute(const Method& method,
                                           std::span<const Value> args) {
     std::println("Interpreter: executing {}.{}{} with {} argument(s)",
-        owner.this_name(), method.name, method.descriptor, args.size());
+        method.owner.this_name(), method.name, method.descriptor, args.size());
 
-    Frame frame(owner, method);
+    Frame frame(method.owner, method);
 
     auto& locals = frame.locals();
     const size_t to_copy = std::min(args.size(), locals.size());
@@ -77,10 +76,10 @@ std::optional<Value> Interpreter::execute(Class& owner,
     return run(frame);
 }
 
-void Interpreter::invoke(Class& owner, const Method& method, size_t arg_count, Frame& frame) {
+void Interpreter::invoke(const Method& method, size_t arg_count, Frame& frame) {
     if (method.is_native) {
         std::println(
-            "Interpreter: executing native {}.{}{}", owner.this_name(), method.name, method.descriptor);
+            "Interpreter: executing native {}.{}{}", method.owner.this_name(), method.name, method.descriptor);
         method.native_callback(vm_, frame);
     }
     else {
@@ -88,7 +87,7 @@ void Interpreter::invoke(Class& owner, const Method& method, size_t arg_count, F
         for (size_t i = arg_count; i > 0; --i) {
             args[i - 1] = frame.pop_stack();
         }
-        auto ret = execute(owner, method, args);
+        auto ret = execute(method, args);
         if (ret.has_value()) {
             frame.push_stack(*ret);
         }
@@ -99,7 +98,7 @@ template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 std::optional<Value> Interpreter::run(Frame& frame) {
-    while (frame.pc() < frame.method().code.size()) {
+    while (frame.get_pc() < frame.method().code.size()) {
         std::print("Stack: [");
         for (size_t i = 0; i < frame.operand_stack().size(); ++i) {
             if (i > 0) {
@@ -112,11 +111,11 @@ std::optional<Value> Interpreter::run(Frame& frame) {
                 [](int64_t arg) { std::print("long: {}", arg); },
                 [](float arg) { std::print("float: {}", arg); },
                 [](double arg) { std::print("double: {}", arg); },
-                [](RuntimeObject* arg) { std::print("object: {}", static_cast<const void*>(arg)); }
+                [](Object* arg) { std::print("object: {}", static_cast<const void*>(arg)); }
             }, val);
         }
         std::println("]");
-        std::print("{:04X}: ", frame.pc());
+        std::print("{:04X}: ", frame.get_pc());
         const auto opcode = frame.pop_code_u8();
 
         switch (opcode) {
@@ -125,7 +124,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
         } break;
         case op_aconst_null: {
             std::println("{:{}}", "aconst_null", OPCODE_PRINT_PAD_WIDTH);
-            frame.push_stack(static_cast<RuntimeObject*>(nullptr));
+            frame.push_stack(static_cast<Object*>(nullptr));
         } break;
         case op_iconst_m1: {
             std::println("{:{}}", "iconst_m1", OPCODE_PRINT_PAD_WIDTH);
@@ -211,7 +210,17 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             const auto value = frame.owner().resolve_constant(vm_, index);
             frame.push_stack(value);
         } break;
+        case op_iload: {
+            auto index = frame.pop_code_u8();
+            std::println("{:{}} {:02X}", "iload", OPCODE_PRINT_PAD_WIDTH, index);
+            frame.push_stack(frame.locals()[index]);
+        } break;
 
+        case op_aload: {
+            auto index = frame.pop_code_u8();
+            std::println("{:{}} {:02X}", "aload", OPCODE_PRINT_PAD_WIDTH, index);
+            frame.push_stack(frame.locals()[index]);
+        } break;
         case op_iload_0: {
             std::println("{:{}}", "iload_0", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[0]);
@@ -262,24 +271,65 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             frame.push_stack(frame.locals()[3]);
         } break;
 
+        case op_caload: {
+            std::println("{:{}}", "caload", OPCODE_PRINT_PAD_WIDTH);
+
+            auto index = std::get<int32_t>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
+            auto* array = reference ? std::get_if<PrimitiveArrayData>(&reference->data) : nullptr;
+            if (array == nullptr) {
+                // In a complete VM a null reference would raise NullPointerException.
+                throw std::runtime_error("caload: object is not an array reference");
+            }
+            frame.push_stack(array->get(index));
+        } break;
+
+        case op_istore: {
+            auto index = frame.pop_code_u8();
+            std::println("{:{}} {:02X}", "istore", OPCODE_PRINT_PAD_WIDTH, index);
+            frame.locals()[index] = frame.pop_stack();
+        } break;
+
+        case op_astore: {
+            auto index = frame.pop_code_u8();
+            std::println("{:{}} {:02X}", "astore", OPCODE_PRINT_PAD_WIDTH, index);
+            frame.locals()[index] = frame.pop_stack();
+        } break;
+        case op_istore_0: {
+            std::println("{:{}}", "istore_0", OPCODE_PRINT_PAD_WIDTH);
+            frame.locals()[0] = frame.pop_stack();
+        } break;
+        case op_istore_1: {
+            std::println("{:{}}", "istore_1", OPCODE_PRINT_PAD_WIDTH);
+            frame.locals()[1] = frame.pop_stack();
+        } break;
+        case op_istore_2: {
+            std::println("{:{}}", "istore_2", OPCODE_PRINT_PAD_WIDTH);
+            frame.locals()[2] = frame.pop_stack();
+        } break;
+        case op_istore_3: {
+            std::println("{:{}}", "istore_3", OPCODE_PRINT_PAD_WIDTH);
+            frame.locals()[3] = frame.pop_stack();
+        } break;
+
         case op_astore_0: {
             std::println("{:{}}", "astore_0", OPCODE_PRINT_PAD_WIDTH);
-            auto value = std::get<RuntimeObject*>(frame.pop_stack());
+            auto value = std::get<Object*>(frame.pop_stack());
             frame.locals()[0] = value;
         } break;
         case op_astore_1: {
             std::println("{:{}}", "astore_1", OPCODE_PRINT_PAD_WIDTH);
-            auto value = std::get<RuntimeObject*>(frame.pop_stack());
+            auto value = std::get<Object*>(frame.pop_stack());
             frame.locals()[1] = value;
         } break;
         case op_astore_2: {
             std::println("{:{}}", "astore_2", OPCODE_PRINT_PAD_WIDTH);
-            auto value = std::get<RuntimeObject*>(frame.pop_stack());
+            auto value = std::get<Object*>(frame.pop_stack());
             frame.locals()[2] = value;
         } break;
         case op_astore_3: {
             std::println("{:{}}", "astore_3", OPCODE_PRINT_PAD_WIDTH);
-            auto value = std::get<RuntimeObject*>(frame.pop_stack());
+            auto value = std::get<Object*>(frame.pop_stack());
             frame.locals()[3] = value;
         } break;
         case op_iastore: {
@@ -287,7 +337,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
 
             auto value = std::get<int32_t>(frame.pop_stack());
             auto index = std::get<int32_t>(frame.pop_stack());
-            auto* reference = std::get<RuntimeObject*>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
             auto* array = reference ? std::get_if<PrimitiveArrayData>(&reference->data) : nullptr;
             if (array == nullptr) {
                 // In a complete VM a null reference would raise NullPointerException.
@@ -299,9 +349,9 @@ std::optional<Value> Interpreter::run(Frame& frame) {
         case op_aastore: {
             std::println("{:{}}", "aastore", OPCODE_PRINT_PAD_WIDTH);
 
-            auto object = std::get<RuntimeObject*>(frame.pop_stack());
+            auto object = std::get<Object*>(frame.pop_stack());
             auto index = std::get<int32_t>(frame.pop_stack());
-            auto reference = std::get<RuntimeObject*>(frame.pop_stack());
+            auto reference = std::get<Object*>(frame.pop_stack());
             auto* array = reference ? std::get_if<InstanceArrayData>(&reference->data) : nullptr;
             if (array == nullptr) {
                 // In a complete VM a null reference would raise NullPointerException.
@@ -309,20 +359,20 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             }
             if (object != nullptr) {
                 if (auto* instance = std::get_if<InstanceData>(&object->data)) {
-                    if (instance->type != array->element_type) {
+                    if (&instance->type != &array->element_type) {
                         // In a complete VM this would raise ArrayStoreException.
                         throw std::runtime_error("aastore: object is not an instance of the array's element type");
                     }
                 }
             }
-            array->set(index, object);
+            array->elements[index] = object;
         } break;
         case op_bastore: {
             std::println("{:{}}", "bastore", OPCODE_PRINT_PAD_WIDTH);
 
             auto value = std::get<int32_t>(frame.pop_stack());
             auto index = std::get<int32_t>(frame.pop_stack());
-            auto* reference = std::get<RuntimeObject*>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
             auto* array = reference ? std::get_if<PrimitiveArrayData>(&reference->data) : nullptr;
             if (array == nullptr) {
                 // In a complete VM a null reference would raise NullPointerException.
@@ -336,7 +386,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
 
             auto value = std::get<int32_t>(frame.pop_stack());
             auto index = std::get<int32_t>(frame.pop_stack());
-            auto* reference = std::get<RuntimeObject*>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
             auto* array = reference ? std::get_if<PrimitiveArrayData>(&reference->data) : nullptr;
             if (array == nullptr) {
                 // In a complete VM a null reference would raise NullPointerException.
@@ -350,7 +400,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
 
             auto value = std::get<int32_t>(frame.pop_stack());
             auto index = std::get<int32_t>(frame.pop_stack());
-            auto* reference = std::get<RuntimeObject*>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
             auto* array = reference ? std::get_if<PrimitiveArrayData>(&reference->data) : nullptr;
             if (array == nullptr) {
                 // In a complete VM a null reference would raise NullPointerException.
@@ -363,6 +413,38 @@ std::optional<Value> Interpreter::run(Frame& frame) {
         case op_dup: {
             std::println("{:{}}", "dup", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.peek_stack());
+        } break;
+
+        case op_iadd: {
+            std::println("{:{}}", "iadd", OPCODE_PRINT_PAD_WIDTH);
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(value1 + value2);
+        } break;
+
+        case op_isub: {
+            std::println("{:{}}", "isub", OPCODE_PRINT_PAD_WIDTH);
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(value1 - value2);
+        } break;
+
+        case op_imul: {
+            std::println("{:{}}", "imul", OPCODE_PRINT_PAD_WIDTH);
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(value1 * value2);
+        } break;
+
+        case op_idiv: {
+            std::println("{:{}}", "idiv", OPCODE_PRINT_PAD_WIDTH);
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            if (value2 == 0) {
+                // In a complete VM this would raise ArithmeticException.
+                throw std::runtime_error("idiv: division by zero");
+            }
+            frame.push_stack(value1 / value2);
         } break;
 
         case op_land: {
@@ -378,6 +460,12 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             auto value1 = std::get<int64_t>(frame.pop_stack());
             frame.push_stack(value1 ^ value2);
         } break;
+        case op_iinc: {
+            std::println("{:{}}", "iinc", OPCODE_PRINT_PAD_WIDTH);
+            auto index = frame.pop_code_u8();
+            auto constant = static_cast<int8_t>(frame.pop_code_u8());
+            frame.locals()[index] = std::get<int32_t>(frame.locals()[index]) + constant;
+        } break;
 
         case op_ifne: {
             const auto offset = static_cast<int16_t>(frame.pop_code_u16());
@@ -385,17 +473,74 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             
             auto value = std::get<int32_t>(frame.pop_stack());
             if (value != 0) {
-                frame.set_pc(frame.pc() + offset - 3); // -3 to account for the size of the instruction itself
+                frame.branch(offset - 3); // -3 to account for the size of the instruction itself
             }
         } break;
+        case op_iflt: {
+            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
+            std::println("{:{}} {:04X}", "iflt", OPCODE_PRINT_PAD_WIDTH, offset);
 
+            auto value = std::get<int32_t>(frame.pop_stack());
+            if (value < 0) {
+                frame.branch(offset - 3); // -3 to account for the size of the instruction itself
+            }
+        } break;
         case op_ifge: {
             const auto offset = static_cast<int16_t>(frame.pop_code_u16());
             std::println("{:{}} {:04X}", "ifge", OPCODE_PRINT_PAD_WIDTH, offset);
             
             auto value = std::get<int32_t>(frame.pop_stack());
             if (value >= 0) {
-                frame.set_pc(frame.pc() + offset - 3); // -3 to account for the size of the instruction itself
+                frame.branch(offset - 3); // -3 to account for the size of the instruction itself
+            }
+        } break;
+
+        case op_ifle: {
+            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
+            std::println("{:{}} {:04X}", "ifle", OPCODE_PRINT_PAD_WIDTH, offset);
+            
+            auto value = std::get<int32_t>(frame.pop_stack());
+            if (value <= 0) {
+                frame.branch(offset - 3); // -3 to account for the size of the instruction itself
+            }
+        } break;
+        case op_if_icmpeq: {
+            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
+            std::println("{:{}} {:04X}", "if_icmpeq", OPCODE_PRINT_PAD_WIDTH, offset);
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            if (value1 == value2) {
+                frame.branch(offset - 3); // -3 to account for the size of the instruction itself
+            }
+        } break;
+        case op_if_icmpne: {
+            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
+            std::println("{:{}} {:04X}", "if_icmpne", OPCODE_PRINT_PAD_WIDTH, offset);
+
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            if (value1 != value2) {
+                frame.branch(offset - 3); // -3 to account for the size of the instruction itself
+            }
+        } break;
+        case op_if_icmplt: {
+            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
+            std::println("{:{}} {:04X}", "if_icmplt", OPCODE_PRINT_PAD_WIDTH, offset);
+
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            if (value1 < value2) {
+                frame.branch(offset - 3); // -3 to account for the size of the instruction itself
+            }
+        } break;
+        case op_if_icmpge: {
+            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
+            std::println("{:{}} {:04X}", "if_icmpge", OPCODE_PRINT_PAD_WIDTH, offset);
+
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            if (value1 >= value2) {
+                frame.branch(offset - 3); // -3 to account for the size of the instruction itself
             }
         } break;
 
@@ -403,199 +548,173 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             const auto offset = static_cast<int16_t>(frame.pop_code_u16());
             std::println("{:{}} {:04X}", "goto", OPCODE_PRINT_PAD_WIDTH, offset);
 
-            frame.set_pc(frame.pc() + offset - 3); // -3 to account for the size of the instruction itself
+            frame.branch(offset - 3); // -3 to account for the size of the instruction itself
         } break;
 
         case op_ireturn: {
             std::println("{:{}}", "ireturn", OPCODE_PRINT_PAD_WIDTH);
+            if (frame.operand_stack().size() != 1) {
+                throw std::runtime_error("ireturn: operand stack should have exactly one value");
+            }
             return frame.pop_stack();
         }
 
         case op_areturn: {
             std::println("{:{}}", "areturn", OPCODE_PRINT_PAD_WIDTH);
+            if (frame.operand_stack().size() != 1) {
+                throw std::runtime_error("areturn: operand stack should have exactly one value");
+            }
             return frame.pop_stack();
         }
         case op_return: {
             std::println("{:{}}", "return", OPCODE_PRINT_PAD_WIDTH);
+            if (!frame.operand_stack().empty()) {
+                throw std::runtime_error("return: operand stack should be empty");
+            }
             return std::nullopt;
         }
         case op_getstatic: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "getstatic", OPCODE_PRINT_PAD_WIDTH, index);
 
-            const FieldAndMethodRef field_ref = frame.owner().resolve_field_ref(index);
-            Class* target = (field_ref.class_name == frame.owner().this_name())
-                ? &frame.owner()
-                : vm_.load_class(field_ref.class_name);
-            vm_.initialize_class(*target);
-
-            Value* slot = target->find_static_field(field_ref.name, field_ref.descriptor);
-            if (slot == nullptr) {
-                // In a complete VM this would raise NoSuchFieldError.
+            auto& field = frame.owner().resolve_field(index, vm_.class_loader());
+            if (!field.is_static) {
                 throw std::runtime_error(std::format(
-                    "getstatic: no static field {}.{}:{}",
-                    field_ref.class_name, field_ref.name, field_ref.descriptor));
+                    "getstatic: field {}.{}:{} is not static",
+                    field.owner.this_name(), field.name, field.descriptor));
             }
-            frame.push_stack(*slot);
+
+            vm_.initialize_class(field.owner);
+            frame.push_stack(field.value);
         } break;
         case op_putstatic: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "putstatic", OPCODE_PRINT_PAD_WIDTH, index);
 
-            const FieldAndMethodRef field_ref = frame.owner().resolve_field_ref(index);
-            Class* target = (field_ref.class_name == frame.owner().this_name())
-                ? &frame.owner()
-                : vm_.load_class(field_ref.class_name);
-            vm_.initialize_class(*target);
-
-            Value* slot = target->find_static_field(field_ref.name, field_ref.descriptor);
-            if (slot == nullptr) {
-                // In a complete VM this would raise NoSuchFieldError.
+            auto& field = frame.owner().resolve_field(index, vm_.class_loader());
+            if (!field.is_static) {
                 throw std::runtime_error(std::format(
-                    "putstatic: no static field {}.{}:{}",
-                    field_ref.class_name, field_ref.name, field_ref.descriptor));
+                    "putstatic: field {}.{}:{} is not static",
+                    field.owner.this_name(), field.name, field.descriptor));
             }
 
-            *slot = frame.pop_stack();
+            vm_.initialize_class(field.owner);
+            field.value = frame.pop_stack();
         } break;
         case op_getfield: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "getfield", OPCODE_PRINT_PAD_WIDTH, index);
 
-            const FieldAndMethodRef field_ref = frame.owner().resolve_field_ref(index);
-            Class* target = (field_ref.class_name == frame.owner().this_name())
-                ? &frame.owner()
-                : vm_.load_class(field_ref.class_name);
-
-            const auto slot = target->find_field_slot(field_ref.name, field_ref.descriptor);
-            if (!slot) {
-                // In a complete VM this would raise NoSuchFieldError.
+            auto& field = frame.owner().resolve_field(index, vm_.class_loader());
+            if (field.is_static) {
                 throw std::runtime_error(std::format(
-                    "putfield: no field {}.{}:{}",
-                    field_ref.class_name, field_ref.name, field_ref.descriptor));
+                    "getfield: field {}.{}:{} is static, expected instance field",
+                    field.owner.this_name(), field.name, field.descriptor));
             }
 
-            auto object = std::get<RuntimeObject*>(frame.pop_stack());
-            frame.push_stack(std::get<InstanceData>(object->data).fields[*slot]);
+            auto object = std::get<Object*>(frame.pop_stack());
+            frame.push_stack(std::get<InstanceData>(object->data).fields[field.slot]);
         } break;
         case op_putfield: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "putfield", OPCODE_PRINT_PAD_WIDTH, index);
 
-            const FieldAndMethodRef field_ref = frame.owner().resolve_field_ref(index);
-            Class* target = (field_ref.class_name == frame.owner().this_name())
-                ? &frame.owner()
-                : vm_.load_class(field_ref.class_name);
-            
-            const auto slot = target->find_field_slot(field_ref.name, field_ref.descriptor);
-            if (!slot) {
-                // In a complete VM this would raise NoSuchFieldError.
+            auto& field = frame.owner().resolve_field(index, vm_.class_loader());
+            if (field.is_static) {
                 throw std::runtime_error(std::format(
-                    "putfield: no field {}.{}:{}",
-                    field_ref.class_name, field_ref.name, field_ref.descriptor));
+                    "putfield: field {}.{}:{} is static, expected instance field",
+                    field.owner.this_name(), field.name, field.descriptor));
             }
 
             auto value = frame.pop_stack();
-            auto object = std::get<RuntimeObject*>(frame.pop_stack());
-            std::get<InstanceData>(object->data).fields[*slot] = value;
+            auto object = std::get<Object*>(frame.pop_stack());
+            std::get<InstanceData>(object->data).fields[field.slot] = value;
         } break;
         case op_invokevirtual: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "invokevirtual", OPCODE_PRINT_PAD_WIDTH, index);
 
-            const FieldAndMethodRef method_ref = frame.owner().resolve_method_ref(index);
+            const Method& resolved_method = frame.owner().resolve_method(index, vm_.class_loader());
 
-            // The receiver sits just below the arguments on the operand stack.
-            const size_t arg_count = count_descriptor_arguments(method_ref.descriptor);
-            const std::vector<Value>& stack = frame.operand_stack();
-            auto* receiver = std::get<RuntimeObject*>(stack[stack.size() - 1 - arg_count]);
+            const size_t arg_count = count_descriptor_arguments(resolved_method.descriptor);
+            auto* receiver = std::get<Object*>(frame.peek_stack(arg_count));
             if (receiver == nullptr) {
                 // In a complete VM this would raise NullPointerException.
                 throw std::runtime_error(std::format(
                     "invokevirtual: null receiver for {}.{}{}",
-                    method_ref.class_name, method_ref.name, method_ref.descriptor));
+                    resolved_method.owner.this_name(), resolved_method.name, resolved_method.descriptor));
             }
-            // Resolve the receiver's runtime class for virtual dispatch. Plain
-            // instances dispatch against their own class; a java/lang/Class
-            // mirror dispatches against java/lang/Class itself.
+
             Class* receiver_class = nullptr;
             if (auto* instance = std::get_if<InstanceData>(&receiver->data)) {
-                receiver_class = instance->type;
+                receiver_class = &instance->type;
             }
             else if (std::holds_alternative<ClassMirrorData>(receiver->data)) {
-                receiver_class = vm_.load_class("java/lang/Class");
+                receiver_class = &vm_.class_loader().load("java/lang/Class");
             }
             else {
                 throw std::runtime_error("invokevirtual: receiver is not an instance");
             }
 
-            // Virtual dispatch: select the override starting from the receiver's
-            // runtime class and walking up the superclass chain.
-            Class& runtime_class = *receiver_class;
-            Class* owner = nullptr;
-            const Method* method =
-                select_virtual_method(vm_, runtime_class, method_ref.name, method_ref.descriptor, owner);
+            auto find_method_in_superclasses = [&](Class* cls) -> const Method* {
+                while (cls != nullptr) {
+                    const Method* method = cls->find_method(resolved_method.name, resolved_method.descriptor);
+                    if (method != nullptr) {
+                        return method;
+                    }
+                    cls = cls->super();
+                }
+                return nullptr;
+            };
+            const Method* method = find_method_in_superclasses(receiver_class);
             if (method == nullptr) {
                 // In a complete VM this would raise NoSuchMethodError / AbstractMethodError.
                 throw std::runtime_error(std::format(
                     "invokevirtual: no method {}.{}{}",
-                    method_ref.class_name, method_ref.name, method_ref.descriptor));
+                    resolved_method.owner.this_name(), resolved_method.name, resolved_method.descriptor));
             }
 
-            invoke(*owner, *method, arg_count + 1, frame);
+            invoke(*method, arg_count + 1, frame);
         } break;
         case op_invokespecial: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "invokespecial", OPCODE_PRINT_PAD_WIDTH, index);
 
-            const FieldAndMethodRef method_ref = frame.owner().resolve_method_ref(index);
-            Class* target = (method_ref.class_name == frame.owner().this_name())
-                ? &frame.owner()
-                : vm_.load_class(method_ref.class_name);
-
-            const Method* method = target->find_method(method_ref.name, method_ref.descriptor);
-            if (method == nullptr) {
-                // In a complete VM this would raise NoSuchMethodError.
-                throw std::runtime_error(std::format(
-                    "invokespecial: no method {}.{}{}",
-                    method_ref.class_name, method_ref.name, method_ref.descriptor));
+            const Method& method = frame.owner().resolve_method(index, vm_.class_loader());
+            bool is_constructor = (method.name == "<init>");
+            bool is_interface = method.owner.is_interface();
+            bool is_superclass = (&method.owner == frame.owner().super());
+            if (!is_constructor && !is_interface && is_superclass && frame.owner().treat_super_specially()) {
+                throw std::runtime_error("invokespecial: ACC_SUPER semantics not implemented yet");
             }
 
-            const size_t slot_count = count_descriptor_arguments(method->descriptor) + 1;
-            invoke(*target, *method, slot_count, frame);
+            const size_t arg_count = count_descriptor_arguments(method.descriptor) + 1;
+            invoke(method, arg_count, frame);
         } break;
         case op_invokestatic: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "invokestatic", OPCODE_PRINT_PAD_WIDTH, index);
 
-            const FieldAndMethodRef method_ref = frame.owner().resolve_method_ref(index);
-            Class* target = (method_ref.class_name == frame.owner().this_name())
-                ? &frame.owner()
-                : vm_.load_class(method_ref.class_name);
-
-            const Method* method = target->find_method(method_ref.name, method_ref.descriptor);
-            if (method == nullptr) {
-                // In a complete VM this would raise NoSuchMethodError.
+            const Method& method = frame.owner().resolve_method(index, vm_.class_loader());
+            if (!method.is_static) {
                 throw std::runtime_error(std::format(
-                    "invokestatic: no method {}.{}{}",
-                    method_ref.class_name, method_ref.name, method_ref.descriptor));
+                    "invokestatic: method {}.{}{} is not static",
+                    method.owner.this_name(), method.name, method.descriptor));
             }
 
-            const size_t slot_count = count_descriptor_arguments(method->descriptor);
-            invoke(*target, *method, slot_count, frame);
+            vm_.initialize_class(method.owner);
+            const size_t arg_count = count_descriptor_arguments(method.descriptor);
+            invoke(method, arg_count, frame);
         } break;
 
         case op_new: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "new", OPCODE_PRINT_PAD_WIDTH, index);
 
-            const std::string_view class_name = frame.owner().resolve_class_name(index);
-            Class* target = (class_name == frame.owner().this_name())
-                ? &frame.owner()
-                : vm_.load_class(class_name);
-            vm_.initialize_class(*target);
+            Class& target = frame.owner().resolve_class(index, vm_.class_loader());
+            vm_.initialize_class(target);
 
-            RuntimeObject* instance = vm_.heap().new_instance(*target);
+            Object* instance = vm_.heap().new_instance(target);
             frame.push_stack(instance);
         } break;
         case op_newarray: {
@@ -603,29 +722,24 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             std::println("{:{}} {:02X}", "newarray", OPCODE_PRINT_PAD_WIDTH, type);
 
             auto count = std::get<int32_t>(frame.pop_stack());
-            RuntimeObject* array =
-                vm_.heap().new_primitive_array(static_cast<ElementType>(type), count);
+            Object* array =
+                vm_.heap().new_primitive_array(static_cast<PrimitiveArrayData::ElementType>(type), count);
             frame.push_stack(array);
         } break;
         case op_anewarray: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "anewarray", OPCODE_PRINT_PAD_WIDTH, index);
 
+            Class& target = frame.owner().resolve_class(index, vm_.class_loader());
+
             auto count = std::get<int32_t>(frame.pop_stack());
-
-            const std::string_view class_name = frame.owner().resolve_class_name(index);
-            Class* target = (class_name == frame.owner().this_name())
-                ? &frame.owner()
-                : vm_.load_class(class_name);
-            vm_.initialize_class(*target);
-
-            RuntimeObject* array = vm_.heap().new_instance_array(*target, count);
+            Object* array = vm_.heap().new_instance_array(target, count);
             frame.push_stack(array);
         } break;
         case op_arraylength: {
             std::println("{:{}}", "arraylength", OPCODE_PRINT_PAD_WIDTH);
 
-            auto* reference = std::get<RuntimeObject*>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
             if (reference == nullptr) {
                 // In a complete VM this would raise NullPointerException.
                 throw std::runtime_error("arraylength: object is not an array reference");
@@ -636,7 +750,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
                 length = primitive_array->length();
             }
             else if (auto* instance_array = std::get_if<InstanceArrayData>(&reference->data)) {
-                length = instance_array->length();
+                length = static_cast<int32_t>(instance_array->elements.size());
             }
             else {
                 // In a complete VM this would raise ArrayStoreException.
@@ -646,48 +760,77 @@ std::optional<Value> Interpreter::run(Frame& frame) {
         } break;
 
         case op_checkcast: {
-            std::println("{:{}}", "checkcast", OPCODE_PRINT_PAD_WIDTH);
-            // NOOP for now
+            const auto index = frame.pop_code_u16();
+            std::println("{:{}} {:04X}", "checkcast", OPCODE_PRINT_PAD_WIDTH, index);
+
+            Class& target = frame.owner().resolve_class(index, vm_.class_loader());
+            // NOOP for now but resolves a class
         } break;
 
-        case op_multinewarray: {
+        case op_multianewarray: {
             const auto index = frame.pop_code_u16();
             auto dimensions = frame.pop_code_u8();
             std::println("{:{}} {:04X} {}", "multianewarray", OPCODE_PRINT_PAD_WIDTH, index, dimensions);
 
-            const std::string_view class_name = frame.owner().resolve_class_name(index);
-            Class* target = (class_name == frame.owner().this_name())
-                ? &frame.owner()
-                : vm_.load_class(class_name);
-            vm_.initialize_class(*target);
+            if (dimensions < 1) {
+                throw std::runtime_error("multianewarray: dimensions must be at least 1");
+            }
+
+            Class& target = frame.owner().resolve_class(index, vm_.class_loader());
 
             std::vector<int32_t> counts(dimensions);
             for (int i = dimensions - 1; i >= 0; --i) {
                 counts[i] = std::get<int32_t>(frame.pop_stack());
             }
-            RuntimeObject* array = vm_.heap().new_instance_array(*target, counts[0]);
+
+            // Recursively allocate `dimensions` levels. Each level's component is the current
+            // array class's component type: a reference component yields an instance array that
+            // we recurse into, while a primitive component yields the leaf primitive array (e.g.
+            // the int[] in [[[I). Dimensions the descriptor allows but `dimensions` omits are
+            // left as null references.
+            auto allocate =
+                [&](this const auto& self, Class& array_class, int level) -> Object* {
+                Class& component = *array_class.component_type();
+
+                if (component.is_primitive()) {
+                    return vm_.heap().new_primitive_array(
+                        primitive_array_element_type(component.this_name()), counts[level]);
+                }
+
+                Object* array = vm_.heap().new_instance_array(component, counts[level]);
+                if (level + 1 < dimensions) {
+                    auto& elements = std::get<InstanceArrayData>(array->data).elements;
+                    for (int32_t i = 0; i < counts[level]; ++i) {
+                        elements[i] = self(component, level + 1);
+                    }
+                }
+
+                return array;
+            };
+
+            Object* array = allocate(target, 0);
             frame.push_stack(array);
         } break;
         case op_ifnull: {
             const auto offset = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "ifnull", OPCODE_PRINT_PAD_WIDTH, offset);
-            auto* reference = std::get<RuntimeObject*>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
             if (reference == nullptr) {
-                frame.set_pc(frame.pc() + offset - 3); // -3 to account for the opcode and offset bytes
+                frame.branch(offset - 3); // -3 to account for the opcode and offset bytes
             }
         } break;
         case op_ifnonnull: {
             const auto offset = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "ifnonnull", OPCODE_PRINT_PAD_WIDTH, offset);
-            auto* reference = std::get<RuntimeObject*>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
             if (reference != nullptr) {
-                frame.set_pc(frame.pc() + offset - 3); // -3 to account for the opcode and offset bytes
+                frame.branch(offset - 3); // -3 to account for the opcode and offset bytes
             }
         } break;
         default:
             throw std::runtime_error(std::format(
                 "Interpreter: unimplemented opcode 0x{:02X} at pc={} in {}.{}{}",
-                opcode, frame.pc() - 1,
+                opcode, frame.get_pc() - 1,
                 frame.owner().this_name(), frame.method().name, frame.method().descriptor));
         }
     }

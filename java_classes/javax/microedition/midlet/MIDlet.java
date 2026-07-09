@@ -1,0 +1,11 @@
+package javax.microedition.midlet;
+
+public abstract class MIDlet {
+    protected MIDlet() {}
+
+    protected abstract void startApp() throws MIDletStateChangeException;
+
+    protected abstract void pauseApp();
+
+    protected abstract void destroyApp(boolean unconditional) throws MIDletStateChangeException;
+}

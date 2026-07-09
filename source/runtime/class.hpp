@@ -16,18 +16,17 @@ class Frame;
 class VM;
 
 struct Field {
-    std::string_view name;
-    std::string_view descriptor;
-    uint16_t slot;
-};
-
-struct StaticField {
+    Class& owner;
+    bool is_static;
     std::string_view name;
     std::string_view descriptor;
     Value value;
+    uint16_t slot;
 };
 
 struct Method {
+    Class& owner;
+    bool is_static;
     bool is_native;
     std::string_view name;
     std::string_view descriptor;
@@ -38,58 +37,66 @@ struct Method {
     std::function<void(VM&, Frame&)> native_callback;
 };
 
-enum class ClassInitState {
-    Loaded,        // parsed, but <clinit> not yet started
-    Initializing,  // <clinit> currently running on some thread
-    Initialized,   // <clinit> completed normally (or class has none)
-    Failed         // <clinit> threw; further use must rethrow NoClassDefFoundError
-};
-
-enum class ClassKind {
-    File,    // parsed from a .class file
-    Array    // synthetic array class (e.g. "[Ljava/lang/String;")
-};
 
 class Class {
 public:
+    enum class InitState {
+        Loaded,        // parsed, but <clinit> not yet started
+        Initializing,  // <clinit> currently running on some thread
+        Initialized,   // <clinit> completed normally (or class has none)
+        Failed         // <clinit> threw; further use must rethrow NoClassDefFoundError
+    };
+
+    enum class Kind {
+        Ordinary,
+        Array,
+        Primitive
+    };
+
     Class(const char* filename, ClassLoader& class_loader);
-    // Synthetic array class. `component` is the element class (null for a
-    // primitive base element such as `[I`).
-    Class(std::string array_name, Class* component);
+    explicit Class(std::string name, Class* component_type = nullptr);
 
-    ClassKind kind() const noexcept { return kind_; }
-    bool is_array() const noexcept { return kind_ == ClassKind::Array; }
-    Class* component_type() const noexcept { return component_; }
+    InitState init_state() const noexcept { return init_state_; }
+    void set_init_state(InitState state) noexcept { init_state_ = state; }
 
-    std::string_view this_name() const;
-    std::string_view super_name() const;
+    bool treat_super_specially() const noexcept { return treat_super_specially_; }
+    bool is_interface() const noexcept { return is_interface_; }
 
-    size_t get_total_field_count() const noexcept { return total_field_count_; }
-    std::optional<uint16_t> find_field_slot(std::string_view name, std::string_view descriptor) const noexcept;
-    Value* find_static_field(std::string_view name, std::string_view descriptor) noexcept;
+    Class* super() const { return super_; }
+    Class* component_type() const noexcept { return component_type_; }
+    bool is_primitive() const noexcept { return kind_ == Kind::Primitive; }
+
+    std::string_view this_name() const { return this_name_; }
+    std::string_view super_name() const { return super_ ? super_->this_name() : ""; }
+
+    size_t instance_field_count() const noexcept { return instance_field_count_; }
+
+    Class& resolve_class(uint16_t index, ClassLoader& class_loader);
+    Field& resolve_field(uint16_t index, ClassLoader& class_loader);
+    const Method& resolve_method(uint16_t index, ClassLoader& class_loader);
+
+    Field* find_field(std::string_view name, std::string_view descriptor) noexcept;
     const Method* find_method(std::string_view name, std::string_view descriptor) const noexcept;
 
+    Object* create_string(VM& vm, std::string_view str) const;
     Value resolve_constant(VM& vm, uint16_t constant_pool_index) const;
     std::string_view resolve_class_name(uint16_t constant_pool_index) const;
-    FieldAndMethodRef resolve_field_ref(uint16_t constant_pool_index) const;
-    FieldAndMethodRef resolve_method_ref(uint16_t constant_pool_index) const;
-
-    ClassInitState init_state() const noexcept { return init_state_; }
-    void set_init_state(ClassInitState state) noexcept { init_state_ = state; }
+    FieldAndMethodStringRef resolve_method_ref(uint16_t constant_pool_index) const;
 
     Class(const Class&) = delete;
     Class& operator=(const Class&) = delete;
 private:
-    std::unique_ptr<ClassFile> class_file_;
+    Kind kind_;
+    InitState init_state_ = InitState::Loaded;
+    const std::unique_ptr<const ClassFile> class_file_;
+    const bool treat_super_specially_;
+    const bool is_interface_;
     std::vector<RuntimeConstantPoolEntry> runtime_constant_pool_;
-    mutable std::string_view this_name_;
-    mutable std::string_view super_name_;
-    size_t total_field_count_ = 0;
+    Class* super_ = nullptr;
+    std::vector<Class*> interfaces_;
+    size_t instance_field_count_ = 0;
     std::vector<Field> fields_;
-    std::vector<StaticField> static_fields_;
     std::vector<Method> methods_;
-    ClassInitState init_state_ = ClassInitState::Loaded;
-    ClassKind kind_ = ClassKind::File;
-    std::string name_;        // backing storage for native/array class names
-    Class* component_ = nullptr; // element class for array kinds
+    std::string this_name_;
+    Class* component_type_ = nullptr;
 };

@@ -13,11 +13,7 @@ class VM {
 public:
     explicit VM(std::string_view main_class);
 
-    void add_classpath_entry(std::filesystem::path dir);
-
     void run();
-
-    Class* load_class(std::string_view binary_name);
 
     void initialize_class(Class& cls);
 
