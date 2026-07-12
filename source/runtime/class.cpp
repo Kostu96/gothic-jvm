@@ -6,9 +6,6 @@
 #include <algorithm>
 #include <print>
 
-// TODO(Kostu): temp:
-#include "runtime/frame.hpp"
-
 namespace {
 
 constexpr uint16_t ACC_STATIC =    0x0008;
@@ -70,97 +67,7 @@ Value default_field_value(std::string_view descriptor) {
     return static_cast<int32_t>(0);
 }
 
-// TODO(Kostu): temp:
-void java_lang_system_current_time_millis(VM& vm, Frame& frame) {
-    std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch());
-    frame.push_stack(static_cast<int64_t>(ms.count()));
 }
-
-//void java_lang_class_new_instance(VM& vm, Frame& frame) {
-//    auto* cls_obj = std::get<Object*>(frame.pop_stack());
-//    if (cls_obj == nullptr) {
-//        // In a complete VM this would raise NullPointerException.
-//        throw std::runtime_error("newInstance: class is null");
-//    }
-//    auto& mirror = std::get<ClassMirrorData>(cls_obj->data);
-//    Class* cls = mirror.mirrored;
-//    Object* instance = vm.heap().new_instance(*cls);
-//    cls->find_method("<init>", "()V");
-//    Value val = instance;
-//    vm.interpreter().execute(*cls, *cls->find_method("<init>", "()V"), std::span{ &val, 1 });
-//
-//    frame.push_stack(instance);
-//}
-
-void java_lang_object_get_class(VM& vm, Frame& frame) {
-    auto* obj = std::get<Object*>(frame.pop_stack());
-
-    auto& instance = std::get<InstanceData>(obj->data);
-    auto* class_obj = vm.heap().class_object_for(instance.type);
-    frame.push_stack(class_obj);
-}
-
-void java_lang_class_get_name(VM& vm, Frame& frame) {
-    auto* cls_obj = std::get<Object*>(frame.pop_stack());
-    auto& mirror = std::get<ClassMirrorData>(cls_obj->data);
-    Class& cls = mirror.mirrored;
-    Object* str_obj = cls.create_string(vm, cls.this_name());
-    frame.push_stack(str_obj);
-}
-
-void javax_microedition_lcdui_canvas_get_width(VM& vm, Frame& frame) {
-    frame.pop_stack(); // this
-    frame.push_stack(static_cast<int32_t>(240)); // TODO(Kostu): temp: hardcoded width
-}
-
-void javax_microedition_lcdui_canvas_get_height(VM& vm, Frame& frame) {
-    frame.pop_stack(); // this
-    frame.push_stack(static_cast<int32_t>(320)); // TODO(Kostu): temp: hardcoded height
-}
-
-void java_lang_string_char_at(VM& vm, Frame& frame) {
-    auto index = std::get<int32_t>(frame.pop_stack());
-    auto* str_obj = std::get<Object*>(frame.pop_stack());
-    auto& str_instance = std::get<InstanceData>(str_obj->data);
-    auto* chars_obj = std::get<Object*>(str_instance.fields[0]);
-    auto& char_array = std::get<PrimitiveArrayData>(chars_obj->data);
-    if (index < 0 || index >= char_array.length()) {
-        // In a complete VM this would raise StringIndexOutOfBoundsException.
-        throw std::runtime_error("charAt: index out of bounds");
-    }
-    auto char_value = char_array.get(index);
-    frame.push_stack(char_value);
-}
-
-void java_lang_string_index_of(VM& vm, Frame& frame) {
-    auto index = std::get<int32_t>(frame.pop_stack());
-    auto char_value = std::get<int32_t>(frame.pop_stack());
-    auto* str_obj = std::get<Object*>(frame.pop_stack());
-    auto& str_instance = std::get<InstanceData>(str_obj->data);
-    auto* chars_obj = std::get<Object*>(str_instance.fields[0]);
-    auto& char_array = std::get<PrimitiveArrayData>(chars_obj->data);
-    int32_t result_index = -1;
-    for (int32_t i = index; i < char_array.length(); ++i) {
-        if (std::get<int32_t>(char_array.get(i)) == char_value) {
-            result_index = i;
-            break;
-        }
-    }
-    frame.push_stack(result_index);
-}
-
-std::unordered_map<std::string, std::function<void(VM&, Frame&)>> native_method_callbacks = {
-    { "java/lang/System.currentTimeMillis()J", java_lang_system_current_time_millis },
-    { "javax/microedition/lcdui/Canvas.getWidth()I", javax_microedition_lcdui_canvas_get_width },
-    { "javax/microedition/lcdui/Canvas.getHeight()I", javax_microedition_lcdui_canvas_get_height },
-    { "java/lang/Object.getClass()Ljava/lang/Class;", java_lang_object_get_class },
-    { "java/lang/Class.getName()Ljava/lang/String;", java_lang_class_get_name },
-    { "java/lang/String.charAt(I)C", java_lang_string_char_at },
-    { "java/lang/String.indexOf(II)I", java_lang_string_index_of }
-};
-
-} // namespace
 
 Class::Class(const char* filename, ClassLoader& class_loader) :
     kind_(Kind::Ordinary),
@@ -171,18 +78,28 @@ Class::Class(const char* filename, ClassLoader& class_loader) :
 {
     runtime_constant_pool_.resize(class_file_->constant_pool().size());
     for (size_t i = 1; i < class_file_->constant_pool().size(); ++i) {
-        if (std::holds_alternative<LongInfo>(class_file_->constant_pool()[i])) {
-            ++i;
-        }
-        if (std::holds_alternative<ClassInfo>(class_file_->constant_pool()[i])) {
-            runtime_constant_pool_[i] = RuntimeClassInfo{};
-        }
-        if (std::holds_alternative<FieldRefInfo>(class_file_->constant_pool()[i])) {
-            runtime_constant_pool_[i] = RuntimeFieldRefInfo{};
-        }
-        if (std::holds_alternative<MethodRefInfo>(class_file_->constant_pool()[i])) {
-            runtime_constant_pool_[i] = RuntimeMethodRefInfo{};
-        }
+        std::visit([&](auto&& info) {
+            using T = std::decay_t<decltype(info)>;
+            if constexpr (std::is_same_v<T, IntegerInfo>) {
+                runtime_constant_pool_[i] = RuntimeIntegerInfo{};
+            }
+            else if constexpr (std::is_same_v<T, LongInfo>) {
+                runtime_constant_pool_[i] = RuntimeLongInfo{};
+                ++i;
+            }
+            else if constexpr (std::is_same_v<T, ClassInfo>) {
+                runtime_constant_pool_[i] = RuntimeClassInfo{};
+            }
+            else if constexpr (std::is_same_v<T, StringInfo>) {
+                runtime_constant_pool_[i] = RuntimeStringInfo{};
+            }
+            else if constexpr (std::is_same_v<T, FieldRefInfo>) {
+                runtime_constant_pool_[i] = RuntimeFieldRefInfo{};
+            }
+            else if constexpr (std::is_same_v<T, MethodRefInfo>) {
+                runtime_constant_pool_[i] = RuntimeMethodRefInfo{};
+            }
+        }, class_file_->constant_pool()[i]);
     }
 
     if (uint16_t super_index = class_file_->super_class(); super_index != 0) {
@@ -222,14 +139,10 @@ Class::Class(const char* filename, ClassLoader& class_loader) :
         method.name = class_file_->constant_pool_utf8(method_info.name_index);
         method.descriptor = class_file_->constant_pool_utf8(method_info.descriptor_index);
         method.arg_slot_widths = compute_arg_slot_widths(method.descriptor, method.is_static);
-        method.num_args = static_cast<uint16_t>(method.arg_slot_widths.size());
 
         if (method.is_native) {
-            std::string key = std::string(this_name()) + "." + std::string(method.name) + std::string(method.descriptor);
-            auto it = native_method_callbacks.find(key);
-            if (it != native_method_callbacks.end()) {
-                method.native_callback = it->second;
-            }
+            method.native_callback =
+                class_loader.native_methods().find(this_name(), method.name, method.descriptor);
         }
 
         for (auto& attr : method_info.attributes) {
@@ -254,10 +167,46 @@ Class::Class(std::string name, Class* component_type) :
     this_name_(std::move(name)),
     component_type_(component_type) {}
 
+Value Class::resolve_constant(uint16_t index, ClassLoader& class_loader, Heap& heap) {
+    return std::visit([&, this](auto&& info) -> Value {
+        using T = std::decay_t<decltype(info)>;
+        if constexpr (std::is_same_v<T, RuntimeIntegerInfo>) {
+            return class_file_->constant_pool_integer(index);
+        }
+        else if constexpr (std::is_same_v<T, RuntimeLongInfo>) {
+            return class_file_->constant_pool_long(index);
+        }
+        else if constexpr (std::is_same_v<T, RuntimeClassInfo>) {
+            auto& cls = resolve_class(index, class_loader);
+            return heap.class_object_for(cls);
+        }
+        else if constexpr (std::is_same_v<T, RuntimeStringInfo>) {
+            if (!info.resolved) {
+                info.resolved = heap.new_interned_string(class_file_->get_string(index));
+            }
+            return info.resolved;
+        }
+        else {
+            throw std::runtime_error(std::format(
+                "Class: constant pool entry at index {} is not valid constant", index));
+        }
+    }, runtime_constant_pool_[index]);
+
+    Value value = class_file_->get_constant(index);
+    if (std::holds_alternative<std::monostate>(value)) {
+        const std::string_view str = class_file_->get_string(index);
+
+        value = heap.new_interned_string(str);
+    }
+
+    return value;
+}
+
 Class& Class::resolve_class(uint16_t index, ClassLoader& class_loader) {
     auto class_info = std::get_if<RuntimeClassInfo>(&runtime_constant_pool_[index]);
     if (!class_info) {
-        throw std::runtime_error("Class: constant pool entry at index " + std::to_string(index) + " is not a class reference");
+        throw std::runtime_error(std::format(
+            "Class: constant pool entry at index {}  is not a class reference", index));
     }
 
     if (!class_info->resolved) {
@@ -377,8 +326,8 @@ const Method& Class::resolve_method(uint16_t index, ClassLoader& class_loader) {
         }
 
         if (method == nullptr) {
-            throw std::runtime_error("Class: method " + std::string(name_and_type.first) +
-                                     " not found in hierarchy of class " + std::string(this_name()));
+            throw std::runtime_error(std::format("Class: method {}.{}{} not found.",
+                method_class.this_name(), name_and_type.first, name_and_type.second));
         }
 
         rt_method_ref_info->resolved = method;
@@ -399,46 +348,4 @@ const Method* Class::find_method(std::string_view name, std::string_view descrip
         return m.name == name && m.descriptor == descriptor;
     });
     return it != methods_.end() ? &*it : nullptr;
-}
-
-Object* Class::create_string(VM& vm, std::string_view str) const {
-    auto& string_class = vm.class_loader().load("java/lang/String");
-    Object* string_obj = vm.heap().new_instance(string_class);
-
-    // Backing char[] for the String. The constant is stored as (modified)
-    // UTF-8; for ASCII each byte maps directly to one char.
-    Object* chars =
-        vm.heap().new_primitive_array(PrimitiveArrayData::ElementType::Char, static_cast<int32_t>(str.size()));
-    auto& char_array = std::get<PrimitiveArrayData>(chars->data);
-    for (size_t i = 0; i < str.size(); ++i) {
-        char_array.set(static_cast<int32_t>(i),
-            static_cast<int32_t>(static_cast<unsigned char>(str[i])));
-    }
-
-    // Populate the String fields directly instead of running <init>([C)V,
-    // the same way HotSpot materializes interned literals. This avoids
-    // depending on System.arraycopy and leaves no uninitialized field slots.
-    auto& instance = std::get<InstanceData>(string_obj->data);
-    const auto set_field = [&](std::string_view name, std::string_view descriptor, Value field_value) {
-        if (auto field = string_class.find_field(name, descriptor)) {
-            instance.fields[field->slot] = field_value;
-        }
-        };
-    set_field("value", "[C", chars);
-    set_field("offset", "I", static_cast<int32_t>(0));
-    set_field("count", "I", static_cast<int32_t>(str.size()));
-    set_field("hash", "I", static_cast<int32_t>(0));
-
-    return string_obj;
-}
-
-Value Class::resolve_constant(VM& vm, uint16_t constant_pool_index) const {
-    Value value = class_file_->get_constant(constant_pool_index);
-    if (std::holds_alternative<std::monostate>(value)) {
-        const std::string_view str = class_file_->get_string(constant_pool_index);
-
-        value = create_string(vm, str);
-    }
-
-    return value;
 }

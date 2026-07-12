@@ -1,9 +1,9 @@
 #pragma once
 #include "class_loader/class_file.hpp"
 #include "runtime/runtime_constant_pool_entry.hpp"
+#include "runtime/native_methods.hpp"
 #include "runtime/value.hpp"
 
-#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -13,6 +13,8 @@
 
 class ClassLoader;
 class Frame;
+class Heap;
+class NativeMethods;
 class VM;
 
 struct Field {
@@ -30,13 +32,12 @@ struct Method {
     bool is_native;
     std::string_view name;
     std::string_view descriptor;
-    uint16_t num_args;                    // argument count, including `this` for instance methods
     std::vector<uint8_t> arg_slot_widths; // local slots per argument (incl. `this`); long/double occupy 2
     uint16_t max_stack;
     uint16_t max_locals;
     std::span<const std::byte> code;
     std::span<const ExceptionTableEntry> exception_table;
-    std::function<void(VM&, Frame&)> native_callback;
+    const NativeMethods::Callback* native_callback;
 };
 
 
@@ -73,15 +74,13 @@ public:
 
     size_t instance_field_count() const noexcept { return instance_field_count_; }
 
+    Value resolve_constant(uint16_t index, ClassLoader& class_loader, Heap& heap);
     Class& resolve_class(uint16_t index, ClassLoader& class_loader);
     Field& resolve_field(uint16_t index, ClassLoader& class_loader);
     const Method& resolve_method(uint16_t index, ClassLoader& class_loader);
 
     Field* find_field(std::string_view name, std::string_view descriptor) noexcept;
     const Method* find_method(std::string_view name, std::string_view descriptor) const noexcept;
-
-    Object* create_string(VM& vm, std::string_view str) const;
-    Value resolve_constant(VM& vm, uint16_t constant_pool_index) const;
 
     Class(const Class&) = delete;
     Class& operator=(const Class&) = delete;

@@ -25,7 +25,9 @@ std::string_view primitive_type_name(char descriptor) {
 
 } // namespace
 
-ClassLoader::ClassLoader() = default;
+ClassLoader::ClassLoader(const NativeMethods& native_methods) :
+    native_methods_(native_methods) {}
+
 ClassLoader::~ClassLoader() = default;
 
 void ClassLoader::add_classpath_entry(std::filesystem::path dir) {

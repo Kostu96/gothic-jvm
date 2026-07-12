@@ -37,9 +37,18 @@ cmake --build build
 ctest --test-dir build        # or run the app_tests target
 ```
 
-Test resources live at `resources/test_files/` (`HelloWorld.class`, `Addition.class`,
-plus `.java` sources); path injected via `TEST_FILES_DIR` compile definition. Current
-tests only cover `BinaryReader` and `ClassFile`/`Class` parsing (no interpreter tests).
+The top-level `CMakeLists.txt` also does `add_subdirectory(java_classes)`, which uses
+`find_package(Java)` plus a `javac` custom command to compile the hand-maintained `.java`
+runtime sources into `build/java_classes/` (target `java_classes`, on which `app` depends).
+Building therefore needs a JDK whose `javac` still accepts `-source 1.3 -target 1.1`. Only the
+ten sources listed in `java_classes/CMakeLists.txt` are compiled (see the classpath notes and
+gaps for what else `build/java_classes/` must contain at runtime).
+
+The `tests/` target still injects a `TEST_FILES_DIR` compile definition pointing at
+`resources/test_files/`, but that directory has been removed and the sole remaining test
+(`tests/test_binary_reader.cpp`) builds its inputs in memory, so the definition is now
+stale/unused. There is no `ClassFile`/`Class` parsing or interpreter test coverage anymore
+(the former `test_class_file.cpp` was deleted).
 
 ### Runtime data / classpath
 
@@ -52,36 +61,42 @@ At startup the classpath is assembled from the **current working directory**, no
    `<cwd>/gothic3thebeginning`.
 
 Relevant on-disk assets:
-- `java_classes/` (repo root) — small hand-maintained set of runtime classes, several
-  with `.java` sources (`FullCanvas`, `ResourceInputStream`, `Object`, `Canvas`,
-  `Command`, `MIDlet`, `MIDletStateChangeException`). Note the root copy's `java/lang`
-  only contains `Object.class`.
+- `java_classes/` (repo root) — hand-maintained bootstrap runtime classes kept as **`.java`
+  sources** (`com/kostu96/gjvm/ResourceInputStream`, `com/nokia/mid/ui/FullCanvas`,
+  `java/lang/{Class,String,System}`, `javax/microedition/lcdui/{Canvas,Font}`,
+  `javax/microedition/midlet/{MIDlet,MIDletStateChangeException}`), plus a prebuilt
+  `java/lang/Object.class` (there is no `Object.java`). `Command.java` also lives here but is
+  **not** in the compile list. The CMake `java_classes` target compiles these with `javac`
+  (see [Build & test](#build--test)); they are not committed as `.class` files.
 - `resources/classes/` — a large **vendored J2ME/MIDP/CLDC class library** (real SDK
   `.class` files: `java.lang.*`, `java.io.*`, `java.util.*`, `javax.microedition.*`).
-  Not on the default runtime classpath; it's the source pool these bootstrap classes
-  come from.
+  Not on the default runtime classpath; it's the source pool the extra runtime classes
+  (`java/io/*`, `java/util/*`, `StringBuffer`, …) sitting in `build/java_classes/` come from.
 - `resources/gothic3thebeginning/` — MIDlet data: `HG.class` (default main class),
   obfuscated single-letter classes (`a`/`b.class`/`c`/`d.class`/…), `.mid`/`.mdl`/`.lng`
   data, `icon.png`, `s00.png`, `META-INF/`.
-- `build/java_classes/` and `build/gothic3thebeginning/` — build-tree copies that
-  actually satisfy `<cwd>` lookups when running from `build/` (e.g. `build/java_classes`
-  additionally contains `String`, `System`, `Class`, `StringBuffer`, `Hashtable`, …).
+- `build/java_classes/` — output directory for the CMake javac step; this is what satisfies
+  `<cwd>/java_classes` lookups when running from `build/`. Besides the freshly compiled
+  sources it currently also holds `java/lang/Object.class` and dependency classes
+  (`java/io/*`, `java/util/*`, `StringBuffer`, `Hashtable`, …) that the javac step does **not**
+  produce (see gaps). `build/gothic3thebeginning/` mirrors the MIDlet data.
 
 ## Directory layout
 
 ```
 source/
-  main.cpp                      # entry: VM(main_class); add classpath entries; run()
+  main.cpp                      # entry: VM vm; add classpath entries; vm.run(main_class)
   class_loader/                 # .class file parsing + classpath-based class loading
     class_file.{hpp,cpp}        # ClassFile: raw parse of constant pool, fields, methods, Code attr, MUTF-8 decode
     constant_pool_entry.hpp     # ConstantPoolEntry variant (Utf8/Integer/Long/Class/String/refs/NameAndType)
     class_loader.{hpp,cpp}      # ClassLoader: classpath resolve + cache; array classes via load_array
   runtime/                      # execution model
-    vm.{hpp,cpp}                # VM: owns ClassLoader/Heap/Interpreter; boot Object+String; run+init MIDlet
-    class.{hpp,cpp}             # Class/Method/Field; constant-pool resolution; String materialization; native callback table
+    vm.{hpp,cpp}                # VM: owns NativeMethods/ClassLoader/Heap/Interpreter; boot Class+String; run+init MIDlet
+    class.{hpp,cpp}             # Class/Method/Field; constant-pool resolution; binds ACC_NATIVE methods to callbacks
+    native_methods.{hpp,cpp}    # NativeMethods: "<class>.<name><descriptor>" -> C++ callback registry
     interpreter.{hpp,cpp}       # bytecode dispatch loop (execute/invoke/run) -> optional<Value>
     frame.{hpp,cpp}             # Frame: locals, operand stack, pc, code readers, branch()
-    heap.{hpp,cpp}              # Heap: allocates instances/arrays + canonical Class mirrors (owns unique_ptrs)
+    heap.{hpp,cpp}              # Heap: instances/arrays + interned Strings + canonical Class mirrors (owns unique_ptrs)
     object.{hpp,cpp}            # Object = variant<InstanceData, PrimitiveArrayData, InstanceArrayData, ClassMirrorData>
     opcodes.hpp                 # op_* bytecode opcode constants
     value.hpp                   # Value = variant<monostate,int32,int64,float,double,Object*>
@@ -89,9 +104,8 @@ source/
   utils/
     binary_reader.{hpp,cpp}     # big-endian u8/u16/u32, string/bytes, bounds-checked
 tests/
-  CMakeLists.txt, test_binary_reader.cpp, test_class_file.cpp
+  CMakeLists.txt, test_binary_reader.cpp
 resources/
-  test_files/                   # .class fixtures for tests (HelloWorld, Addition + .java)
   classes/                      # vendored J2ME/MIDP/CLDC standard library (.class)
   gothic3thebeginning/          # MIDlet data (HG.class, obfuscated classes, mid/mdl/lng, images, META-INF)
 java_classes/                   # hand-maintained runtime classes (+ some .java sources)
@@ -101,20 +115,27 @@ build/                          # generated VS solution/projects + <cwd> copies 
 
 ## Architecture & flow
 
-1. `main.cpp` (`args <main_class> [<class_path_entry>...]`) builds a `VM(main_class)`;
-   default main class is `HG`. With no extra args the classpath defaults to
-   `<cwd>/gothic3thebeginning`; otherwise each extra arg is added as a classpath entry.
-2. `VM` ctor adds `<cwd>/java_classes` to the classpath and eagerly loads
-   `java/lang/Class` then `java/lang/String` (`java/lang/Object` loads transitively).
-3. `VM::run()` -> `load` main class -> `initialize_class`, then `new_instance(main)`,
-   invokes `<init>()V`, then invokes the MIDlet lifecycle entry `startApp()V` (both via
-   `Interpreter::execute` with the receiver passed as the sole argument).
-4. `Interpreter` holds a `VM&` (ctor `Interpreter(VM&)`). `execute(method, args)`
-   builds a `Frame(method.owner, method)`, copies args into locals, then `run()`
-   dispatches opcodes in a `switch`, returning `optional<Value>`. The private
-   `invoke(owner, method, arg_count, frame)` helper centralizes the native-vs-bytecode
-   call path: native methods call `Method::native_callback(vm, frame)` with the live
-   frame; bytecode methods pop args and re-enter `execute`.
+1. `main.cpp` (`args <main_class> [<class_path_entry>...]`) default-constructs a `VM`
+   and calls `vm.run(main_class)`; default main class is `HG`. With no extra args the
+   classpath defaults to `<cwd>/gothic3thebeginning`; otherwise each extra arg is added
+   as a classpath entry.
+2. `VM` ctor wires its owned `NativeMethods` into the `ClassLoader`, adds
+   `<cwd>/java_classes` to the classpath, eagerly loads `java/lang/Class` then
+   `java/lang/String` (`java/lang/Object` loads transitively), registers the String class
+   with the heap (`Heap::set_string_class`) so literals can be interned, and initializes
+   `String`.
+3. `VM::run(main_class)` -> `load` main class -> `initialize_class`, then
+   `new_instance(main)`, invokes `<init>()V`, then invokes the MIDlet lifecycle entry
+   `startApp()V` (both via `Interpreter::execute` with the receiver passed as the sole
+   argument).
+4. `Interpreter` holds a `VM&` (ctor `Interpreter(VM&)`). `execute(method, args = {})`
+   takes only the `Method` (the owner comes from `method.owner`), builds a
+   `Frame(method.owner, method)`, copies args into locals using `arg_slot_widths`, then
+   `run()` dispatches opcodes in a `switch`, returning `optional<Value>`. The private
+   `invoke(method, frame)` helper centralizes the native-vs-bytecode call path: native
+   methods call the `Method::native_callback` (a `const NativeMethods::Callback*`) with the
+   live frame, throwing if it is null; bytecode methods pop `num_args` args and re-enter
+   `execute`.
 5. `initialize_class` walks the superclass chain first (recursively) and then runs
    `<clinit>()V` if present, tracking `Class::InitState` (Loaded/Initializing/Initialized/Failed).
 6. `ClassLoader::load` checks a cache, routes names starting with `[` to `load_array`,
@@ -143,22 +164,28 @@ build/                          # generated VS solution/projects + <cwd> copies 
   lazily-resolved `runtime_constant_pool_`, and (arrays only) `component_type_`. Key API:
   `find_method`/`find_field` (this class only), `resolve_class/field/method` (cached CP
   resolution; field and method resolution walk the full superclass + superinterface hierarchy),
-  `resolve_constant` (ints/longs + interned `String`s), `resolve_class_name`,
-  `resolve_method_ref` (returns a `FieldAndMethodStringRef {class_name, name, descriptor}` for
-  late binding), `create_string` (materializes a `java/lang/String` — see below), plus
-  predicates/accessors `is_interface()`, `is_primitive()`, `treat_super_specially()`,
-  `component_type()`, `super()`/`super_name()`, `instance_field_count()`,
-  `init_state()`/`set_init_state()`.
+  `resolve_constant(index, class_loader, heap)` (ints/longs + `String`s interned via
+  `Heap::new_interned_string`), plus predicates/accessors `kind()`, `is_interface()`,
+  `treat_super_specially()`, `component_type()`, `this_name()`, `super()`/`super_name()`,
+  `instance_field_count()`, `init_state()`/`set_init_state()`. (`create_string`,
+  `resolve_class_name`, `resolve_method_ref`, and `is_primitive()` no longer exist — test for
+  primitive classes with `kind() == Kind::Primitive`; String materialization now lives on the
+  heap.)
 - **Method**: `owner` (Class&), `is_static`, `is_native`, name, descriptor, `num_args` (argument
   count including `this` for instance methods), `arg_slot_widths` (per-argument local-slot widths
   incl. the leading `this` slot; `long`/`double` = 2, everything else = 1; computed once at parse
   time), `max_stack`/`max_locals`, `code` span, `exception_table` span, `native_callback`
-  (`std::function<void(VM&, Frame&)>`). `Interpreter::invoke(method, frame)` pops `num_args`
-  operand-stack entries; `execute` lays arguments into locals using `arg_slot_widths`.
+  (`const NativeMethods::Callback*`, i.e. a pointer into the `NativeMethods` registry; `nullptr`
+  when the method is not native or has no registered binding). `Interpreter::invoke(method, frame)`
+  pops `num_args` operand-stack entries; `execute` lays arguments into locals using `arg_slot_widths`.
 - **Field**: `owner`, `is_static`, name, descriptor, `Value value` (static storage), `slot` (instance index).
 - **Heap**: owns all `Object`s via `unique_ptr`; `new_instance`, `new_primitive_array`,
-  `new_instance_array`, and `class_object_for(Class&)` which lazily creates and caches one
-  canonical `java/lang/Class` mirror per `Class` (stable identity for `getClass()`).
+  `new_instance_array`, `new_interned_string(str)` (materializes a `java/lang/String`; see
+  below), and `class_object_for(Class&)` which lazily creates and caches one canonical
+  `java/lang/Class` mirror per `Class` (stable identity for `getClass()`). Requires the String
+  class registered via `set_string_class` before any string is interned. Holds a
+  `string_objects_` map intended for interning dedup, but `new_interned_string` does not
+  consult it yet, so each literal currently allocates a fresh `String`.
 - **Frame**: `owner()`/`method()`, `locals()`, `operand_stack()`, `get_pc()`, `branch(offset)`,
   `pop_code_u8/u16`, `push_stack`/`pop_stack`/`peek_stack(index = 0)` (peek is depth-indexed
   from the top of the stack). (No `set_pc`; jumps go through `branch`.)
@@ -168,23 +195,27 @@ build/                          # generated VS solution/projects + <cwd> copies 
   the variant but are not populated yet.
 
 ### String modeling
-`Class::create_string(vm, str)` builds a real `java/lang/String` instance: it allocates a
+`Heap::new_interned_string(str)` builds a real `java/lang/String` instance: it allocates a
 backing `char[]` (one char per byte — ASCII/MUTF-8-ish), then populates the String's
 `value:[C`, `offset:I`, `count:I`, `hash:I` fields directly (rather than running an
-`<init>`). `resolve_constant` uses this to intern `String` constants (`ldc` of a string now
-yields a live object instead of null). The exact field layout depends on the vendored
-`java/lang/String.class` on the classpath.
+`<init>`), locating each field by name/descriptor via `find_field`. `Class::resolve_constant`
+uses this to intern `String` constants (`ldc` of a string now yields a live object instead of
+null). The exact field layout depends on the vendored `java/lang/String.class` on the
+classpath, and the String class must have been registered with the heap
+(`Heap::set_string_class`, done in the `VM` ctor) first.
 
 ### Implemented opcodes (dispatched in `interpreter.cpp`)
 Constants/consts: `nop` (0x00), `aconst_null` (0x01), `iconst_m1..5` (0x02–0x08),
 `lconst_0/1` (0x09–0x0A), `fconst_0/1/2` (0x0B–0x0D), `dconst_0/1` (0x0E–0x0F),
 `bipush` (0x10), `sipush` (0x11), `ldc` (0x12), `ldc_w` (0x13), `ldc2_w` (0x14).
 Loads/stores: `iload` (0x15), `aload` (0x19), `iload_0..3` (0x1A–0x1D),
-`lload_0..3` (0x1E–0x21), `aload_0..3` (0x2A–0x2D), `caload` (0x34), `istore` (0x36),
-`astore` (0x3A), `istore_0..3` (0x3B–0x3E), `astore_0..3` (0x4B–0x4E),
+`lload_0..3` (0x1E–0x21), `aload_0..3` (0x2A–0x2D), `aaload` (0x32), `caload` (0x34),
+`istore` (0x36), `astore` (0x3A), `istore_0..3` (0x3B–0x3E), `astore_0..3` (0x4B–0x4E),
 `iastore` (0x4F), `aastore` (0x53), `bastore` (0x54), `castore` (0x55), `sastore` (0x56).
+`aastore` performs a partial `ArrayStoreException`-style check (a stored `InstanceData`'s
+type must match the array's `element_type`).
 Stack/math: `dup` (0x59), `iadd` (0x60), `isub` (0x64), `imul` (0x68), `idiv` (0x6C),
-`land` (0x7F), `lxor` (0x83), `iinc` (0x84).
+`ishl` (0x78), `land` (0x7F), `ior` (0x80), `lxor` (0x83), `iinc` (0x84), `i2s` (0x93).
 Branches: `ifne` (0x9A), `iflt` (0x9B), `ifge` (0x9C), `ifle` (0x9E),
 `if_icmpeq` (0x9F), `if_icmpne` (0xA0), `if_icmplt` (0xA1), `if_icmpge` (0xA2),
 `goto` (0xA7), `ifnull` (0xC6), `ifnonnull` (0xC7).
@@ -201,29 +232,40 @@ recursively allocates every requested dimension via a self-recursive lambda).
 Notes:
 - `op_lload` (0x16) is declared in `opcodes.hpp` but has no dispatch case yet.
 - The interpreter prints the operand stack and each decoded opcode to stdout (verbose trace).
-- Unknown opcodes throw `std::runtime_error`; argument counts come from
-  `count_descriptor_arguments`. The three `invoke*` opcodes share `Interpreter::invoke`.
+- Unknown opcodes throw `std::runtime_error`. Argument/slot layout comes from
+  `Method::arg_slot_widths` (computed by `compute_arg_slot_widths` at parse time); the three
+  `invoke*` opcodes share `Interpreter::invoke`.
 - Error conditions that a real VM would surface as Java exceptions (NPE, div-by-zero,
   ArrayStore, index OOB, missing field/method) are thrown as `std::runtime_error`.
 
 ### Native callbacks
-There is no separate native-class machinery anymore. Methods flagged `ACC_NATIVE` in a
-loaded `.class` file are matched, by `"<class>.<name><descriptor>"` key, against a static
-`native_method_callbacks` map in `class.cpp`; a match wires up `Method::native_callback`.
-Currently registered:
+Native bindings live in a dedicated `NativeMethods` class (`native_methods.{hpp,cpp}`). The
+`VM` owns one `NativeMethods` instance and hands it to the `ClassLoader` (ctor takes
+`const NativeMethods&`, exposed via `ClassLoader::native_methods()`). Its constructor fills an
+`unordered_map<std::string, Callback>` keyed by `"<class>.<name><descriptor>"`;
+`find(class, name, descriptor)` returns a `const Callback*` (or `nullptr`). When `Class` parses
+a method flagged `ACC_NATIVE`, it looks up that key and stores the resulting pointer in
+`Method::native_callback`. Currently registered:
 - `java/lang/System.currentTimeMillis()J` — real wall-clock millis.
 - `javax/microedition/lcdui/Canvas.getWidth()I` / `getHeight()I` — hardcoded 240 / 320.
 - `java/lang/Object.getClass()Ljava/lang/Class;` — returns the canonical heap `Class` mirror
   (only handles `InstanceData` receivers).
-- `java/lang/Class.getName()Ljava/lang/String;` — materializes a String of the mirrored name.
+- `java/lang/Class.getName()Ljava/lang/String;` — interns a String of the mirrored name.
 - `java/lang/String.charAt(I)C` and `String.indexOf(II)I` — operate on the backing `char[]`.
+- `com/kostu96/gjvm/ResourceInputStream.init(Ljava/lang/String;)V` and
+  `javax/microedition/lcdui/Font.init()V` — no-op stubs bound to real **private native `init`
+  methods** (not constructors): the `.java` sources declare `private native void init(...)`
+  and call it from a plain (non-native) constructor, so these `init` keys are correct and do
+  attach.
 
 ## Conventions
 - Headers `.hpp`, sources `.cpp`; include via paths rooted at `source/` (e.g. `#include "runtime/vm.hpp"`).
 - `snake_case` members with trailing underscore (`class_loader_`); types `PascalCase`; opcode
   constants `op_snake_case`.
-- Native callback functions are free functions in an anonymous namespace in `class.cpp`, named
-  after their fully-qualified Java method (`java_lang_object_get_class`, etc.).
+- Native callback functions are free functions in an anonymous namespace in
+  `native_methods.cpp`, named after their fully-qualified Java method
+  (`java_lang_Object_getClass`, etc.). (One outlier, `javax_microedition_lcdui_Font_init`, is
+  defined just outside that anonymous namespace.)
 - Copy deleted on owning types; raw pointers are non-owning, `unique_ptr` for ownership.
 - Big-endian reads in `BinaryReader`; class file magic `0xCAFEBABE`; UTF-8 constants are
   (modified) UTF-8.
@@ -242,12 +284,29 @@ Currently registered:
   targets the direct superclass of an `ACC_SUPER` class throws
   "invokespecial: ACC_SUPER semantics not implemented yet".
 - **Dead / commented code:** `decode_modified_utf8` in `class_file.cpp` is defined but never
-  called; a commented-out `java_lang_class_new_instance` native remains; several
-  `TODO(Kostu)` markers persist (e.g. the `frame.hpp` include for the `currentTimeMillis`
-  native in `class.cpp`).
+  called; `not_implemented_stub` in `native_methods.cpp` is defined but registered nowhere; a
+  commented-out `java_lang_Class_newInstance` native remains in `native_methods.cpp`; several
+  `TODO(Kostu)` markers persist (unimplemented `ResourceInputStream.init`/`Font.init` bodies,
+  hardcoded canvas size).
+- **`javax_microedition_lcdui_Font_init` is defined outside** the anonymous namespace
+  (external linkage), unlike the other callbacks — a stylistic inconsistency, not a bug. (The
+  `Font.init()V` / `ResourceInputStream.init(...)V` keys are *correct*: the `.java` sources
+  declare private native `init` methods called from the constructors, so they bind fine.)
+- **The CMake javac step only compiles the ten listed sources.** `java_classes/java/lang/
+  Object.class` is a committed prebuilt file (no `Object.java`), and the other runtime classes
+  the MIDlet needs (`java/io/*`, `java/util/*`, `StringBuffer`, …) are vendored copies that
+  currently sit in `build/java_classes/`; nothing copies them from `resources/classes/`, so a
+  clean build tree would be missing both `Object` and those dependencies.
 - `checkcast` (0xC0) resolves the target class but is otherwise a no-op; no real exception
   objects/handler-table dispatch (errors throw `std::runtime_error`); no
   `NoSuchMethodError`/`AbstractMethodError` modeling.
-- `RuntimeStringInfo` / `RuntimeInterfaceMethodRefInfo` cache slots are declared but not used;
-  interface method invocation (`invokeinterface`) is not implemented.
+- **Runtime constant-pool caching is uneven:** `RuntimeClassInfo`/`RuntimeFieldRefInfo`/
+  `RuntimeMethodRefInfo` are populated and consulted, but `resolve_constant` reads ints/longs
+  straight from the `ClassFile` and re-interns strings via the heap on every `ldc`, so the
+  populated `RuntimeIntegerInfo`/`RuntimeLongInfo` slots are never read and `RuntimeStringInfo`
+  is never even populated. `RuntimeInterfaceMethodRefInfo` is unused; `invokeinterface` is not
+  implemented.
+- **Test coverage shrank:** only `tests/test_binary_reader.cpp` remains (`test_class_file.cpp`
+  and `resources/test_files/` were deleted), so class-file/`Class` parsing and interpreter
+  behaviour are untested; the `TEST_FILES_DIR` compile definition now points at a missing dir.
 - No garbage collection; the heap only grows. Most JVM opcodes remain unimplemented.

@@ -2,6 +2,7 @@
 #include "class_loader/class_loader.hpp"
 #include "runtime/heap.hpp"
 #include "runtime/interpreter.hpp"
+#include "runtime/native_methods.hpp"
 
 #include <filesystem>
 #include <string>
@@ -11,9 +12,9 @@ class Class;
 
 class VM {
 public:
-    explicit VM(std::string_view main_class);
+    VM();
 
-    void run();
+    void run(std::string_view main_class);
 
     void initialize_class(Class& cls);
 
@@ -24,7 +25,7 @@ public:
     VM(const VM&) = delete;
     VM& operator=(const VM&) = delete;
 private:
-    std::string main_class_;
+    NativeMethods native_methods_;
     ClassLoader class_loader_;
     Heap heap_;
     Interpreter interpreter_;

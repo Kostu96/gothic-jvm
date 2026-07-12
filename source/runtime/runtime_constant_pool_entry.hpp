@@ -13,6 +13,10 @@ struct Field;
 struct Method;
 struct InterfaceMethod;
 
+struct RuntimeIntegerInfo {};
+
+struct RuntimeLongInfo {};
+
 struct RuntimeClassInfo {
     Class* resolved = nullptr;
 };
@@ -35,6 +39,8 @@ struct RuntimeInterfaceMethodRefInfo {
 
 using RuntimeConstantPoolEntry = std::variant<
     std::monostate,
+    RuntimeIntegerInfo,
+    RuntimeLongInfo,
     RuntimeClassInfo,
     RuntimeStringInfo,
     RuntimeFieldRefInfo,

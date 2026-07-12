@@ -59,11 +59,17 @@ void Interpreter::invoke(const Method& method, Frame& frame) {
     if (method.is_native) {
         std::println(
             "Interpreter: executing native {}.{}{}", method.owner.this_name(), method.name, method.descriptor);
-        method.native_callback(vm_, frame);
+        if (method.native_callback) {
+            (*(method.native_callback))(vm_, frame);
+        }
+        else {
+            throw std::runtime_error(std::format(
+                "Failed to call native: {}.{}{}", method.owner.this_name(), method.name, method.descriptor));
+        }
     }
     else {
-        std::vector<Value> args(method.num_args);
-        for (size_t i = method.num_args; i > 0; --i) {
+        std::vector<Value> args(method.arg_slot_widths.size());
+        for (size_t i = method.arg_slot_widths.size(); i > 0; --i) {
             args[i - 1] = frame.pop_stack();
         }
         auto ret = execute(method, args);
@@ -73,6 +79,7 @@ void Interpreter::invoke(const Method& method, Frame& frame) {
     }
 }
 
+// TODO(Kostu): move this to utils
 template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
@@ -174,19 +181,19 @@ std::optional<Value> Interpreter::run(Frame& frame) {
         case op_ldc: {
             const auto index = frame.pop_code_u8();
             std::println("{:{}} {:02X}", "ldc", OPCODE_PRINT_PAD_WIDTH, index);
-            const auto value = frame.owner().resolve_constant(vm_, index);
+            const auto value = frame.owner().resolve_constant(index, vm_.class_loader(), vm_.heap());
             frame.push_stack(value);
         } break;
         case op_ldc_w: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "ldc_w", OPCODE_PRINT_PAD_WIDTH, index);
-            const auto value = frame.owner().resolve_constant(vm_, index);
+            const auto value = frame.owner().resolve_constant(index, vm_.class_loader(), vm_.heap());
             frame.push_stack(value);
         } break;
         case op_ldc2_w: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "ldc2_w", OPCODE_PRINT_PAD_WIDTH, index);
-            const auto value = frame.owner().resolve_constant(vm_, index);
+            const auto value = frame.owner().resolve_constant(index, vm_.class_loader(), vm_.heap());
             frame.push_stack(value);
         } break;
         case op_iload: {
@@ -194,7 +201,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             std::println("{:{}} {:02X}", "iload", OPCODE_PRINT_PAD_WIDTH, index);
             frame.push_stack(frame.locals()[index]);
         } break;
-
+        
         case op_aload: {
             auto index = frame.pop_code_u8();
             std::println("{:{}} {:02X}", "aload", OPCODE_PRINT_PAD_WIDTH, index);
@@ -248,6 +255,18 @@ std::optional<Value> Interpreter::run(Frame& frame) {
         case op_aload_3: {
             std::println("{:{}}", "aload_3", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[3]);
+        } break;
+
+        case op_aaload: {
+            std::println("{:{}}", "aaload", OPCODE_PRINT_PAD_WIDTH);
+            auto index = std::get<int32_t>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
+            auto* array = reference ? std::get_if<InstanceArrayData>(&reference->data) : nullptr;
+            if (array == nullptr) {
+                // In a complete VM a null reference would raise NullPointerException.
+                throw std::runtime_error("aaload: object is not an array reference");
+            }
+            frame.push_stack(array->elements[index]);
         } break;
 
         case op_caload: {
@@ -426,11 +445,24 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             frame.push_stack(value1 / value2);
         } break;
 
+        case op_ishl: {
+            std::println("{:{}}", "ishl", OPCODE_PRINT_PAD_WIDTH);
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(value1 << (value2 & 0x1F));
+        } break;
+
         case op_land: {
             std::println("{:{}}", "land", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int64_t>(frame.pop_stack());
             auto value1 = std::get<int64_t>(frame.pop_stack());
-            frame.push_stack(value1& value2);
+            frame.push_stack(value1 & value2);
+        } break;
+        case op_ior: {
+            std::println("{:{}}", "ior", OPCODE_PRINT_PAD_WIDTH);
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(value1 | value2);
         } break;
 
         case op_lxor: {
@@ -444,6 +476,12 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             auto index = frame.pop_code_u8();
             auto constant = static_cast<int8_t>(frame.pop_code_u8());
             frame.locals()[index] = std::get<int32_t>(frame.locals()[index]) + constant;
+        } break;
+
+        case op_i2s: {
+            std::println("{:{}}", "i2s", OPCODE_PRINT_PAD_WIDTH);
+            auto value = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(static_cast<int32_t>(static_cast<int16_t>(value)));
         } break;
 
         case op_ifne: {
@@ -615,8 +653,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
 
             const Method& resolved_method = frame.owner().resolve_method(index, vm_.class_loader());
 
-            // num_args includes `this`; the receiver sits just below the declared arguments.
-            auto* receiver = std::get<Object*>(frame.peek_stack(resolved_method.num_args - 1));
+            auto* receiver = std::get<Object*>(frame.peek_stack(resolved_method.arg_slot_widths.size() - 1));
             if (receiver == nullptr) {
                 // In a complete VM this would raise NullPointerException.
                 throw std::runtime_error(std::format(

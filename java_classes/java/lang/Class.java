@@ -1,5 +1,9 @@
 package java.lang;
 
+import com.kostu96.gjvm.ResourceInputStream;
+
+import java.io.*;
+
 public final class Class {
 
     public String toString() {
@@ -20,7 +24,7 @@ public final class Class {
 
     public native String getName();
 
-    public java.io.InputStream getResourceAsStream(String name) {
+    public InputStream getResourceAsStream(String name) {
         try {
             if (name.length() > 0 && name.charAt(0) == '/') {
                 /* Absolute format */
@@ -34,8 +38,8 @@ public final class Class {
                            + name;
                 }
             }
-            return new com.sun.cldc.io.ResourceInputStream(name);
-        } catch (java.io.IOException x) {
+            return new ResourceInputStream(name);
+        } catch (IOException x) {
             return null;
         }
     }

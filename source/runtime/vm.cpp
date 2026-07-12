@@ -5,17 +5,19 @@
 #include <print>
 #include <stdexcept>
 
-VM::VM(std::string_view main_class) :
-    main_class_(main_class),
+VM::VM() :
+    class_loader_(native_methods_),
     interpreter_(*this)
 {
     class_loader_.add_classpath_entry(std::filesystem::current_path() / "java_classes");
     class_loader_.load("java/lang/Class");
-    class_loader_.load("java/lang/String");
+    Class& string_class = class_loader_.load("java/lang/String");
+    heap_.set_string_class(string_class);
+    initialize_class(string_class);
 }
 
-void VM::run() {
-    Class& main = class_loader_.load(main_class_);
+void VM::run(std::string_view main_class) {
+    Class& main = class_loader_.load(main_class);
     initialize_class(main);
 
     Object* main_obj = heap_.new_instance(main);

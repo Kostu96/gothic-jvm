@@ -12,7 +12,7 @@ int main(int argc, char** argv) {
     try {
         const char* main_class = argc >= 2 ? argv[1] : "HG";
 
-        VM vm(main_class);
+        VM vm;
 
         if (argc >= 3) {
             for (int i = 2; i < argc; ++i) {
@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
             vm.class_loader().add_classpath_entry(std::filesystem::current_path() / "gothic3thebeginning");
         }
 
-        vm.run();
+        vm.run(main_class);
     }
     catch (const std::exception& e) {
         std::println(stderr, "{}", e.what());
