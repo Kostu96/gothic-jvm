@@ -29,6 +29,7 @@ add_custom_command(
             ${JAVA_SOURCES}
     COMMAND ${CMAKE_COMMAND} -E touch ${CLASS_OUTPUT_DIR}/javac.stamp
     DEPENDS ${JAVA_SOURCES}
+    COMMENT "Building java classes."
 )
 
 add_custom_target(java_classes ALL

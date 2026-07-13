@@ -47,14 +47,13 @@ step. It also does `add_subdirectory(java_classes)`, which uses
 `find_package(Java)` plus a `javac` custom command to compile the hand-maintained `.java`
 runtime sources into `build/java_classes/` (target `java_classes`, on which `app` depends).
 Building therefore needs a JDK whose `javac` still accepts `-source 1.3 -target 1.1`. Only the
-ten sources listed in `java_classes/CMakeLists.txt` are compiled (see the classpath notes and
-gaps for what else `build/java_classes/` must contain at runtime).
+eleven sources listed in `java_classes/CMakeLists.txt` are compiled (see the classpath notes
+and gaps for what else `build/java_classes/` must contain at runtime).
 
-The `tests/` target still injects a `TEST_FILES_DIR` compile definition pointing at
-`resources/test_files/`, but that directory has been removed and the sole remaining test
-(`tests/test_binary_reader.cpp`) builds its inputs in memory, so the definition is now
-stale/unused. There is no `ClassFile`/`Class` parsing or interpreter test coverage anymore
-(the former `test_class_file.cpp` was deleted).
+The `tests/` target no longer injects a `TEST_FILES_DIR` compile definition (that stale
+definition and `resources/test_files/` were removed); the sole remaining test
+(`tests/test_binary_reader.cpp`) builds its inputs in memory. There is no `ClassFile`/`Class`
+parsing or interpreter test coverage anymore (the former `test_class_file.cpp` was deleted).
 
 ### Runtime data / classpath
 
@@ -69,7 +68,7 @@ At startup the classpath is assembled from the **current working directory**, no
 Relevant on-disk assets:
 - `java_classes/` (repo root) — hand-maintained bootstrap runtime classes kept as **`.java`
   sources** (`com/kostu96/gjvm/ResourceInputStream`, `com/nokia/mid/ui/FullCanvas`,
-  `java/lang/{Class,String,System}`, `javax/microedition/lcdui/{Canvas,Font}`,
+  `java/lang/{Class,String,System}`, `javax/microedition/lcdui/{Canvas,Font,Graphics,Image}`,
   `javax/microedition/midlet/{MIDlet,MIDletStateChangeException}`), plus a prebuilt
   `java/lang/Object.class` (there is no `Object.java`). `Command.java` also lives here but is
   **not** in the compile list. The CMake `java_classes` target compiles these with `javac`
@@ -124,7 +123,7 @@ build/                          # generated VS solution/projects + <cwd> copies 
 ## Architecture & flow
 
 1. `main.cpp` (`args <main_class> [<class_path_entry>...]`) opens the SDL3 `Display`
-   (240x320 window + renderer), default-constructs a `VM`, connects the two via
+   (240x320 logical size, scale 2 -> 480x640 window + renderer), default-constructs a `VM`, connects the two via
    `vm.set_display(&display)`, and configures the classpath (default main class `HG`; with no
    extra args the classpath defaults to `<cwd>/gothic3thebeginning`, otherwise each extra arg
    is added as an entry). It then launches `vm.run(main_class)` on a **background
@@ -162,7 +161,11 @@ build/                          # generated VS solution/projects + <cwd> copies 
 - **Object** (`object.hpp`): tagged union (not a class hierarchy),
   `variant<InstanceData, PrimitiveArrayData, InstanceArrayData, ClassMirrorData>` accessed
   via `std::get_if`/`std::holds_alternative` on `.data`.
-  - `InstanceData` holds `Class& type` + `vector<Value> fields` (indexed by field slot).
+  - `InstanceData` holds `Class& type` + `vector<Value> fields` (indexed by field slot) + a
+    `native_payload` (`NativePayload = variant<monostate, ResourceInputStreamNativeData,
+    StringNativeData>`, declared in `object.hpp`). The payload backs C++-side state for objects
+    that need it: `String` instances carry a `StringNativeData{value}` (the raw `std::string`),
+    and `ResourceInputStream` instances carry a `ResourceInputStreamNativeData{buffer, position}`.
   - `PrimitiveArrayData` holds a `variant` of typed element vectors (boolean/byte→uint8,
     char→char16, short→int16, int→int32, long→int64, float, double) with `ElementType`
     tags matching the JVM `newarray` atype codes (4..11); `get`/`set` widen to `Value`.
@@ -197,26 +200,31 @@ build/                          # generated VS solution/projects + <cwd> copies 
   `new_instance_array`, `new_interned_string(str)` (materializes a `java/lang/String`; see
   below), and `class_object_for(Class&)` which lazily creates and caches one canonical
   `java/lang/Class` mirror per `Class` (stable identity for `getClass()`). Requires the String
-  class registered via `set_string_class` before any string is interned. Holds a
-  `string_objects_` map intended for interning dedup, but `new_interned_string` does not
-  consult it yet, so each literal currently allocates a fresh `String`.
+  class registered via `set_string_class` before any string is interned. `new_interned_string`
+  now **deduplicates** via the `string_objects_` map (keyed by the raw string), returning the
+  cached `String` for a repeated literal instead of allocating a fresh one.
 - **Frame**: `owner()`/`method()`, `locals()`, `operand_stack()`, `get_pc()`, `branch(offset)`,
   `pop_code_u8/u16`, `push_stack`/`pop_stack`/`peek_stack(index = 0)` (peek is depth-indexed
   from the top of the stack). (No `set_pc`; jumps go through `branch`.)
 - **Runtime constant pool** (`runtime_constant_pool_entry.hpp`): `RuntimeClassInfo`,
-  `RuntimeFieldRefInfo`, `RuntimeMethodRefInfo` are populated on first resolution and
-  cache the resolved pointer. `RuntimeStringInfo`/`RuntimeInterfaceMethodRefInfo` exist in
-  the variant but are not populated yet.
-- **Display** (`platform/display.{hpp,cpp}`): wraps SDL3. Ctor `Display(title, width, height)`
-  calls `SDL_Init(SDL_INIT_VIDEO)` + `SDL_CreateWindowAndRenderer` (vsync on); dtor tears it
-  all down. `process_events()` pumps SDL events and returns `false` on
-  `SDL_EVENT_QUIT`/`SDL_EVENT_WINDOW_CLOSE_REQUESTED`; `clear(r,g,b)`/`present()` drive the 2D
-  renderer; `width()`/`height()`/`renderer()` expose the surface. Non-owned by `VM` (a
-  `Display*` set via `VM::set_display`), so the VM can run headless in tests.
+  `RuntimeFieldRefInfo`, `RuntimeMethodRefInfo` and `RuntimeStringInfo` are populated on first
+  resolution and cache the resolved pointer (`RuntimeStringInfo.resolved` caches the interned
+  `java/lang/String`). `RuntimeIntegerInfo`/`RuntimeLongInfo` are used as tags only (the value
+  is re-read from the `ClassFile`). `RuntimeInterfaceMethodRefInfo` exists in the variant but
+  is not populated yet.
+- **Display** (`platform/display.{hpp,cpp}`): wraps SDL3. Ctor `Display(title, width, height,
+  scale)` calls `SDL_Init(SDL_INIT_VIDEO)` + `SDL_CreateWindowAndRenderer` (window sized
+  `width*scale` x `height*scale`, then vsync on via `SDL_SetRenderVSync`); dtor tears it all
+  down. `width()`/`height()` return the **logical** (unscaled) size. `process_events()` pumps
+  SDL events and returns `false` on `SDL_EVENT_QUIT`/`SDL_EVENT_WINDOW_CLOSE_REQUESTED`;
+  `clear(r,g,b)`/`present()` drive the 2D renderer; `width()`/`height()`/`renderer()` expose
+  the surface. Non-owned by `VM` (a `Display*` set via `VM::set_display`), so the VM can run
+  headless in tests.
 
 ### Windowing
-`main.cpp` constructs one `Display` on the stack (240x320, title `gothic-jvm`) before booting
-the `VM`, wires it in with `vm.set_display(&display)`, then runs `vm.run` on a background
+`main.cpp` constructs one `Display` on the stack (240x320 logical, scale 2 -> 480x640 window,
+title `gothic-jvm`) before booting the `VM`, wires it in with `vm.set_display(&display)`, then
+runs `vm.run` on a background
 `std::thread` while the **main thread** spins the window event/render loop
 (`while (display.process_events()) { clear(0,0,0); present(); }`). SDL owns the main thread
 (window creation + event pump must live there), so the JVM runs concurrently; the `Display`'s
@@ -225,7 +233,9 @@ them race-free. On window close, `main` calls `vm.request_stop()` (an atomic the
 loop checks each instruction, throwing `VmStopRequested` to unwind a MIDlet that never returns
 from `startApp()`) and joins the JVM thread. Native callbacks reach the screen through
 `vm.display()` (currently just Canvas size). Actual MIDP `Graphics`/`Canvas.paint` rendering
-into the renderer is still TODO; `Graphics.java` is an empty placeholder. Note the deeper
+into the renderer is still TODO: `Graphics.java` and `Image.java` now model the MIDP API
+(`fillRect`/`setColor`/`getGraphics`/`createImage`), but their `init`/`fillRect` natives are
+no-op stubs, so nothing is drawn yet. Note the deeper
 gap: proper MIDlet execution also needs Java thread support, `Display.setCurrent`, and a
 `paint`/`repaint`/`serviceRepaints` event-dispatch model, none of which exist yet — so only
 narrow single-threaded, self-rendering MIDlets could run even with the non-blocking loop.
@@ -234,24 +244,29 @@ narrow single-threaded, self-rendering MIDlets could run even with the non-block
 `Heap::new_interned_string(str)` builds a real `java/lang/String` instance: it allocates a
 backing `char[]` (one char per byte — ASCII/MUTF-8-ish), then populates the String's
 `value:[C`, `offset:I`, `count:I`, `hash:I` fields directly (rather than running an
-`<init>`), locating each field by name/descriptor via `find_field`. `Class::resolve_constant`
-uses this to intern `String` constants (`ldc` of a string now yields a live object instead of
-null). The exact field layout depends on the vendored `java/lang/String.class` on the
-classpath, and the String class must have been registered with the heap
-(`Heap::set_string_class`, done in the `VM` ctor) first.
+`<init>`), locating each field by name/descriptor via `find_field`, and also stashes the raw
+`std::string` in the instance's `native_payload` as `StringNativeData` (used by natives such
+as `ResourceInputStream.init`). Repeated literals are deduplicated via the heap's
+`string_objects_` map. `Class::resolve_constant` uses this to intern `String` constants (`ldc`
+of a string now yields a live object instead of null) and caches the result in the runtime
+constant pool (`RuntimeStringInfo.resolved`). The exact field layout depends on the vendored
+`java/lang/String.class` on the classpath, and the String class must have been registered with
+the heap (`Heap::set_string_class`, done in the `VM` ctor) first.
 
 ### Implemented opcodes (dispatched in `interpreter.cpp`)
 Constants/consts: `nop` (0x00), `aconst_null` (0x01), `iconst_m1..5` (0x02–0x08),
 `lconst_0/1` (0x09–0x0A), `fconst_0/1/2` (0x0B–0x0D), `dconst_0/1` (0x0E–0x0F),
 `bipush` (0x10), `sipush` (0x11), `ldc` (0x12), `ldc_w` (0x13), `ldc2_w` (0x14).
 Loads/stores: `iload` (0x15), `aload` (0x19), `iload_0..3` (0x1A–0x1D),
-`lload_0..3` (0x1E–0x21), `aload_0..3` (0x2A–0x2D), `aaload` (0x32), `caload` (0x34),
-`istore` (0x36), `astore` (0x3A), `istore_0..3` (0x3B–0x3E), `astore_0..3` (0x4B–0x4E),
-`iastore` (0x4F), `aastore` (0x53), `bastore` (0x54), `castore` (0x55), `sastore` (0x56).
+`lload_0..3` (0x1E–0x21), `aload_0..3` (0x2A–0x2D), `iaload` (0x2E), `aaload` (0x32),
+`caload` (0x34), `istore` (0x36), `astore` (0x3A), `istore_0..3` (0x3B–0x3E),
+`astore_0..3` (0x4B–0x4E), `iastore` (0x4F), `aastore` (0x53), `bastore` (0x54),
+`castore` (0x55), `sastore` (0x56).
 `aastore` performs a partial `ArrayStoreException`-style check (a stored `InstanceData`'s
 type must match the array's `element_type`).
 Stack/math: `dup` (0x59), `iadd` (0x60), `isub` (0x64), `imul` (0x68), `idiv` (0x6C),
-`ishl` (0x78), `land` (0x7F), `ior` (0x80), `lxor` (0x83), `iinc` (0x84), `i2s` (0x93).
+`ishl` (0x78), `ishr` (0x7A), `iand` (0x7E), `land` (0x7F), `ior` (0x80), `lxor` (0x83),
+`iinc` (0x84), `i2s` (0x93).
 Branches: `ifne` (0x9A), `iflt` (0x9B), `ifge` (0x9C), `ifle` (0x9E),
 `if_icmpeq` (0x9F), `if_icmpne` (0xA0), `if_icmplt` (0xA1), `if_icmpge` (0xA2),
 `goto` (0xA7), `ifnull` (0xC6), `ifnonnull` (0xC7).
@@ -267,6 +282,10 @@ recursively allocates every requested dimension via a self-recursive lambda).
 
 Notes:
 - `op_lload` (0x16) is declared in `opcodes.hpp` but has no dispatch case yet.
+- `ldc`/`ldc_w`/`ldc2_w` resolve `Integer`/`Long`/`String`/`Class` constants through the
+  runtime constant pool: a `String` constant interns a live `java/lang/String`, and a `Class`
+  constant pushes the heap `java/lang/Class` mirror. (`Float`/`Double` constants still fail to
+  parse; see gaps.)
 - The interpreter prints the operand stack and each decoded opcode to stdout (verbose trace).
 - Unknown opcodes throw `std::runtime_error`. Argument/slot layout comes from
   `Method::arg_slot_widths` (computed by `compute_arg_slot_widths` at parse time); the three
@@ -288,12 +307,15 @@ a method flagged `ACC_NATIVE`, it looks up that key and stores the resulting poi
 - `java/lang/Object.getClass()Ljava/lang/Class;` — returns the canonical heap `Class` mirror
   (only handles `InstanceData` receivers).
 - `java/lang/Class.getName()Ljava/lang/String;` — interns a String of the mirrored name.
-- `java/lang/String.charAt(I)C` and `String.indexOf(II)I` — operate on the backing `char[]`.
-- `com/kostu96/gjvm/ResourceInputStream.init(Ljava/lang/String;)V` and
-  `javax/microedition/lcdui/Font.init()V` — no-op stubs bound to real **private native `init`
-  methods** (not constructors): the `.java` sources declare `private native void init(...)`
-  and call it from a plain (non-native) constructor, so these `init` keys are correct and do
-  attach.
+- `java/lang/String.charAt(I)C`, `String.indexOf(II)I` and `String.lastIndexOf(I)I` — operate
+  on the backing `char[]`.
+- `com/kostu96/gjvm/ResourceInputStream.init(Ljava/lang/String;)V` — loads the named resource
+  off the classpath (`ClassLoader::load_resource`) into the instance's
+  `ResourceInputStreamNativeData` payload; `ResourceInputStream.read()I` returns the next byte
+  from that buffer. Both are bound to real **private native** methods (declared `native` in the
+  `.java` source and called from a plain constructor), not to `<init>`.
+- `javax/microedition/lcdui/Font.init()V`, `Graphics.init(Ljavax/microedition/lcdui/Image;)V`
+  and `Image.init(II)V` — no-op stubs, likewise bound to private native `init` methods.
 
 ## Conventions
 - Headers `.hpp`, sources `.cpp`; include via paths rooted at `source/` (e.g. `#include "runtime/vm.hpp"`).
@@ -301,8 +323,7 @@ a method flagged `ACC_NATIVE`, it looks up that key and stores the resulting poi
   constants `op_snake_case`.
 - Native callback functions are free functions in an anonymous namespace in
   `native_methods.cpp`, named after their fully-qualified Java method
-  (`java_lang_Object_getClass`, etc.). (One outlier, `javax_microedition_lcdui_Font_init`, is
-  defined just outside that anonymous namespace.)
+  (`java_lang_Object_getClass`, etc.).
 - Copy deleted on owning types; raw pointers are non-owning, `unique_ptr` for ownership.
 - Big-endian reads in `BinaryReader`; class file magic `0xCAFEBABE`; UTF-8 constants are
   (modified) UTF-8.
@@ -321,15 +342,18 @@ a method flagged `ACC_NATIVE`, it looks up that key and stores the resulting poi
   targets the direct superclass of an `ACC_SUPER` class throws
   "invokespecial: ACC_SUPER semantics not implemented yet".
 - **Dead / commented code:** `decode_modified_utf8` in `class_file.cpp` is defined but never
-  called; `not_implemented_stub` in `native_methods.cpp` is defined but registered nowhere; a
-  commented-out `java_lang_Class_newInstance` native remains in `native_methods.cpp`; several
-  `TODO(Kostu)` markers persist (unimplemented `ResourceInputStream.init`/`Font.init` bodies,
-  hardcoded canvas size).
-- **`javax_microedition_lcdui_Font_init` is defined outside** the anonymous namespace
-  (external linkage), unlike the other callbacks — a stylistic inconsistency, not a bug. (The
-  `Font.init()V` / `ResourceInputStream.init(...)V` keys are *correct*: the `.java` sources
-  declare private native `init` methods called from the constructors, so they bind fine.)
-- **The CMake javac step only compiles the ten listed sources.** `java_classes/java/lang/
+  called; a commented-out `java_lang_Class_newInstance` native remains in
+  `native_methods.cpp`; `Class::resolve_constant` has an unreachable fallback block after its
+  `std::visit` return; several `TODO(Kostu)` markers persist (empty `Font.init`/`Graphics.init`/
+  `Image.init` bodies, hardcoded canvas fallback size).
+- **Many `.java` runtime methods are declared `native` but have no C++ binding** and would
+  throw "Failed to call native" if invoked: `java/lang/System.{arraycopy,identityHashCode,
+  getProperty,exit,gc}`, `java/lang/Class.{forName,newInstance,isInstance,isAssignableFrom,
+  isInterface,isArray}`, `java/lang/String.{replace,substring,init}`, and
+  `javax/microedition/lcdui/Graphics.fillRect(IIIII)V`. Conversely, `String.indexOf(II)I` is
+  registered in `NativeMethods` but `java/lang/String.java` declares no such method, so that
+  binding never attaches.
+- **The CMake javac step only compiles the eleven listed sources.** `java_classes/java/lang/
   Object.class` is a committed prebuilt file (no `Object.java`), and the other runtime classes
   the MIDlet needs (`java/io/*`, `java/util/*`, `StringBuffer`, …) are vendored copies that
   currently sit in `build/java_classes/`; nothing copies them from `resources/classes/`, so a
@@ -337,13 +361,13 @@ a method flagged `ACC_NATIVE`, it looks up that key and stores the resulting poi
 - `checkcast` (0xC0) resolves the target class but is otherwise a no-op; no real exception
   objects/handler-table dispatch (errors throw `std::runtime_error`); no
   `NoSuchMethodError`/`AbstractMethodError` modeling.
-- **Runtime constant-pool caching is uneven:** `RuntimeClassInfo`/`RuntimeFieldRefInfo`/
-  `RuntimeMethodRefInfo` are populated and consulted, but `resolve_constant` reads ints/longs
-  straight from the `ClassFile` and re-interns strings via the heap on every `ldc`, so the
-  populated `RuntimeIntegerInfo`/`RuntimeLongInfo` slots are never read and `RuntimeStringInfo`
-  is never even populated. `RuntimeInterfaceMethodRefInfo` is unused; `invokeinterface` is not
-  implemented.
+- **Runtime constant-pool caching now works, with leftover dead code:** `resolve_constant`
+  reads through the runtime constant pool — caching resolved `String` literals in
+  `RuntimeStringInfo.resolved`, resolving `Class` constants to a heap mirror, and re-reading
+  int/long values from the `ClassFile` (the `RuntimeIntegerInfo`/`RuntimeLongInfo` slots act as
+  tags only). An unreachable fallback block remains after the `std::visit` return.
+  `RuntimeInterfaceMethodRefInfo` is unused; `invokeinterface` is not implemented.
 - **Test coverage shrank:** only `tests/test_binary_reader.cpp` remains (`test_class_file.cpp`
-  and `resources/test_files/` were deleted), so class-file/`Class` parsing and interpreter
-  behaviour are untested; the `TEST_FILES_DIR` compile definition now points at a missing dir.
+  and `resources/test_files/` were deleted, along with the `TEST_FILES_DIR` compile
+  definition), so class-file/`Class` parsing and interpreter behaviour are untested.
 - No garbage collection; the heap only grows. Most JVM opcodes remain unimplemented.

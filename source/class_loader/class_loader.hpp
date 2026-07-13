@@ -18,12 +18,14 @@ public:
 
     Class& load(std::string_view binary_name);
 
+    std::vector<uint8_t> load_resource(std::string_view binary_name);
+
     const NativeMethods& native_methods() const noexcept { return native_methods_; }
 
     ClassLoader(const ClassLoader&) = delete;
     ClassLoader& operator=(const ClassLoader&) = delete;
 private:
-    std::filesystem::path resolve_path(std::string_view binary_name) const;
+    std::filesystem::path resolve_path(std::string_view binary_name, bool is_class = true) const;
 
     Class& load_array(std::string_view array_name);
 

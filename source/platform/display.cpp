@@ -5,15 +5,16 @@
 #include <stdexcept>
 #include <string>
 
-Display::Display(const std::string& title, int width, int height) :
+Display::Display(const std::string& title, int width, int height, int scale) :
     width_(width),
-    height_(height)
+    height_(height),
+    scale_(scale)
 {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         throw std::runtime_error(std::string("SDL_Init failed: ") + SDL_GetError());
     }
 
-    if (!SDL_CreateWindowAndRenderer(title.c_str(), width, height, 0, &window_, &renderer_)) {
+    if (!SDL_CreateWindowAndRenderer(title.c_str(), width * scale, height * scale, 0, &window_, &renderer_)) {
         std::string error = SDL_GetError();
         SDL_Quit();
         throw std::runtime_error("SDL_CreateWindowAndRenderer failed: " + error);

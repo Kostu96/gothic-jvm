@@ -14,7 +14,7 @@ int main(int argc, char** argv) {
     try {
         const char* main_class = argc >= 2 ? argv[1] : "HG";
 
-        Display display("gothic-jvm", 240, 320);
+        Display display("gothic-jvm", 240, 320, 2);
 
         VM vm;
         vm.set_display(&display);

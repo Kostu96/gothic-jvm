@@ -2,6 +2,7 @@
 
 #include "runtime/class.hpp"
 
+#include <fstream>
 #include <print>
 #include <stdexcept>
 
@@ -62,6 +63,23 @@ Class& ClassLoader::load(std::string_view binary_name) {
     return raw;
 }
 
+std::vector<uint8_t> ClassLoader::load_resource(std::string_view binary_name) {
+    std::filesystem::path file = resolve_path(binary_name, false);
+    if (file.empty()) {
+        throw std::runtime_error(
+            "ClassLoader: cannot find resource '" + std::string(binary_name) + "' on classpath");
+    }
+
+    std::ifstream input(file, std::ios::binary);
+    if (!input) {
+        throw std::runtime_error(
+            "ClassLoader: cannot open resource '" + std::string(binary_name) + "'");
+    }
+
+    std::vector<uint8_t> buffer((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    return buffer;
+}
+
 Class& ClassLoader::load_array(std::string_view array_name) {
     // array_name is guaranteed to start with '[' (checked by load()).
     std::string_view component_descriptor = array_name.substr(1);
@@ -95,8 +113,8 @@ Class& ClassLoader::load_array(std::string_view array_name) {
     return raw;
 }
 
-std::filesystem::path ClassLoader::resolve_path(std::string_view binary_name) const {
-    std::filesystem::path relative = std::filesystem::path(binary_name).concat(".class");
+std::filesystem::path ClassLoader::resolve_path(std::string_view binary_name, bool is_class) const {
+    std::filesystem::path relative = std::filesystem::path(binary_name).concat(is_class ? ".class" : "");
     for (const auto& entry : classpath_) {
         std::filesystem::path candidate = entry / relative;
         if (std::filesystem::exists(candidate)) {

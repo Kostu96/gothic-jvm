@@ -7,10 +7,8 @@ public class ResourceInputStream extends InputStream {
         init(name);
     }
 
-    public int read() throws IOException {
-        return 0;
-    }
+    public native int read() throws IOException;
 
-    private native void init(String name);
+    private native void init(String name) throws IOException;
 
 }

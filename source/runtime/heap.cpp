@@ -71,6 +71,8 @@ Object* Heap::new_interned_string(std::string_view str) {
     set_field("count", "I", static_cast<int32_t>(str.size()));
     set_field("hash", "I", static_cast<int32_t>(0));
 
+    instance.native_payload = StringNativeData{ value };
+
     return string_obj;
 }
 

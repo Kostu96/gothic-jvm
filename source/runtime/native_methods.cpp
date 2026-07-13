@@ -5,14 +5,30 @@
 #include "runtime/vm.hpp"
 
 #include <chrono>
+#include <print>
 
 namespace {
 
 void com_kostu96_gjvm_ResourceInputStream_init(VM& vm, Frame& frame) {
     auto* name = std::get<Object*>(frame.pop_stack());
+    auto& name_instance = std::get<InstanceData>(name->data);
     auto* obj = std::get<Object*>(frame.pop_stack());
+    auto& obj_instance = std::get<InstanceData>(obj->data);
+    auto& name_native = std::get<StringNativeData>(name_instance.native_payload);
 
-    // TODO(Kostu): implement resource input stream initialization
+    ResourceInputStreamNativeData native_data{
+        .buffer = vm.class_loader().load_resource(name_native.value),
+        .position = 0
+    };
+    obj_instance.native_payload = native_data;
+}
+
+void com_kostu96_gjvm_ResourceInputStream_read(VM& vm, Frame& frame) {
+    auto* obj = std::get<Object*>(frame.pop_stack());
+    auto& obj_instance = std::get<InstanceData>(obj->data);
+    auto& stream_native = std::get<ResourceInputStreamNativeData>(obj_instance.native_payload);
+
+    frame.push_stack(static_cast<int32_t>(stream_native.buffer[stream_native.position++]));
 }
 
 void java_lang_Class_getName(VM& vm, Frame& frame) {
@@ -101,21 +117,25 @@ void java_lang_System_currentTimeMillis(VM& vm, Frame& frame) {
 
 void javax_microedition_lcdui_Canvas_getHeight(VM& vm, Frame& frame) {
     frame.pop_stack(); // this
-    int32_t height = vm.display() != nullptr ? vm.display()->height() : 320;
+    int32_t height = vm.display()->height();
     frame.push_stack(height);
 }
 
 void javax_microedition_lcdui_Canvas_getWidth(VM& vm, Frame& frame) {
     frame.pop_stack(); // this
-    int32_t width = vm.display() != nullptr ? vm.display()->width() : 240;
+    int32_t width = vm.display()->width();
     frame.push_stack(width);
-}
-
 }
 
 void javax_microedition_lcdui_Font_init(VM& vm, Frame& frame) {
     auto* font_obj = std::get<Object*>(frame.pop_stack());
     // TODO(Kostu): implement font initialization
+}
+
+void javax_microedition_lcdui_Graphics_init(VM& vm, Frame& frame) {
+    auto* image_obj = std::get<Object*>(frame.pop_stack());
+    auto* graphisc_obj = std::get<Object*>(frame.pop_stack());
+    // TODO(Kostu): implement image creation
 }
 
 void javax_microedition_lcdui_Image_init(VM& vm, Frame& frame) {
@@ -125,9 +145,14 @@ void javax_microedition_lcdui_Image_init(VM& vm, Frame& frame) {
     // TODO(Kostu): implement image creation
 }
 
+}
+
 NativeMethods::NativeMethods() {
     storage_.insert({
-        { "com/kostu96/gjvm/ResourceInputStream.init(Ljava/lang/String;)V", com_kostu96_gjvm_ResourceInputStream_init },
+        { "com/kostu96/gjvm/ResourceInputStream.init(Ljava/lang/String;)V",
+           com_kostu96_gjvm_ResourceInputStream_init },
+        { "com/kostu96/gjvm/ResourceInputStream.read()I",
+           com_kostu96_gjvm_ResourceInputStream_read },
 
         { "java/lang/Class.getName()Ljava/lang/String;",  java_lang_Class_getName },
         { "java/lang/Object.getClass()Ljava/lang/Class;", java_lang_Object_getClass },
@@ -139,6 +164,8 @@ NativeMethods::NativeMethods() {
         { "javax/microedition/lcdui/Canvas.getHeight()I", javax_microedition_lcdui_Canvas_getHeight },
         { "javax/microedition/lcdui/Canvas.getWidth()I",  javax_microedition_lcdui_Canvas_getWidth },
         { "javax/microedition/lcdui/Font.init()V",        javax_microedition_lcdui_Font_init },
+        { "javax/microedition/lcdui/Graphics.init(Ljavax/microedition/lcdui/Image;)V",
+           javax_microedition_lcdui_Graphics_init },
         { "javax/microedition/lcdui/Image.init(II)V",     javax_microedition_lcdui_Image_init }
     });
 }

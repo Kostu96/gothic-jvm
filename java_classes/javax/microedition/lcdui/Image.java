@@ -6,7 +6,9 @@ public class Image {
         return new Image(width, height);
     }
 
-    public native Graphics getGraphics();
+    public Graphics getGraphics() {
+        return new Graphics(this);
+    }
 
     private Image(int width, int height) {
         init(width, height);

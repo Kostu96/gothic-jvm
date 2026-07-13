@@ -8,9 +8,23 @@
 
 class Class;
 
+struct ResourceInputStreamNativeData {
+    std::vector<uint8_t> buffer;
+    size_t position = 0;
+};
+
+struct StringNativeData {
+    std::string value;
+};
+
+using NativePayload = std::variant<std::monostate,
+                                   ResourceInputStreamNativeData,
+                                   StringNativeData>;
+
 struct InstanceData {
     Class& type;
     std::vector<Value> fields;
+    NativePayload native_payload;
 };
 
 struct PrimitiveArrayData {

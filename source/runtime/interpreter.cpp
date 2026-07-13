@@ -15,6 +15,8 @@
 
 namespace {
 
+int indent = 0;
+
 constexpr int OPCODE_PRINT_PAD_WIDTH = 16;
 
 PrimitiveArrayData::ElementType primitive_array_element_type(std::string_view primitive_name) {
@@ -35,8 +37,8 @@ PrimitiveArrayData::ElementType primitive_array_element_type(std::string_view pr
 
 std::optional<Value> Interpreter::execute(const Method& method,
                                           std::span<const Value> args) {
-    std::println("Interpreter: executing {}.{}{} with {} argument(s)",
-        method.owner.this_name(), method.name, method.descriptor, args.size());
+    std::println("{:>{}}Interpreter: executing {}.{}{} with {} argument(s)",
+        "", indent, method.owner.this_name(), method.name, method.descriptor, args.size());
 
     Frame frame(method.owner, method);
 
@@ -58,7 +60,7 @@ std::optional<Value> Interpreter::execute(const Method& method,
 void Interpreter::invoke(const Method& method, Frame& frame) {
     if (method.is_native) {
         std::println(
-            "Interpreter: executing native {}.{}{}", method.owner.this_name(), method.name, method.descriptor);
+            "{:>{}}Interpreter: executing native {}.{}{}", "", indent, method.owner.this_name(), method.name, method.descriptor);
         if (method.native_callback) {
             (*(method.native_callback))(vm_, frame);
         }
@@ -84,11 +86,12 @@ template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 std::optional<Value> Interpreter::run(Frame& frame) {
+    indent += 2;
     while (frame.get_pc() < frame.method().code.size()) {
         if (vm_.stop_requested()) {
             throw VmStopRequested{};
         }
-        std::print("Stack: [");
+        std::print("{:>{}}Stack: [", "", indent);
         for (size_t i = 0; i < frame.operand_stack().size(); ++i) {
             if (i > 0) {
                 std::print(", ");
@@ -104,7 +107,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             }, val);
         }
         std::println("]");
-        std::print("{:04X}: ", frame.get_pc());
+        std::print("{:>{}}{:04X}: ", "", indent, frame.get_pc());
         const auto opcode = frame.pop_code_u8();
 
         switch (opcode) {
@@ -123,7 +126,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             std::println("{:{}}", "iconst_0", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(0));
         } break;
-        case op_iconst_1: { 
+        case op_iconst_1: {
             std::println("{:{}}", "iconst_1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(1));
         } break;
@@ -204,7 +207,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             std::println("{:{}} {:02X}", "iload", OPCODE_PRINT_PAD_WIDTH, index);
             frame.push_stack(frame.locals()[index]);
         } break;
-        
+
         case op_aload: {
             auto index = frame.pop_code_u8();
             std::println("{:{}} {:02X}", "aload", OPCODE_PRINT_PAD_WIDTH, index);
@@ -259,9 +262,22 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             std::println("{:{}}", "aload_3", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[3]);
         } break;
+        case op_iaload: {
+            std::println("{:{}}", "iaload", OPCODE_PRINT_PAD_WIDTH);
+
+            auto index = std::get<int32_t>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
+            auto* array = reference ? std::get_if<PrimitiveArrayData>(&reference->data) : nullptr;
+            if (array == nullptr) {
+                // In a complete VM a null reference would raise NullPointerException.
+                throw std::runtime_error("caload: object is not an array reference");
+            }
+            frame.push_stack(array->get(index));
+        } break;
 
         case op_aaload: {
             std::println("{:{}}", "aaload", OPCODE_PRINT_PAD_WIDTH);
+
             auto index = std::get<int32_t>(frame.pop_stack());
             auto* reference = std::get<Object*>(frame.pop_stack());
             auto* array = reference ? std::get_if<InstanceArrayData>(&reference->data) : nullptr;
@@ -455,6 +471,19 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             frame.push_stack(value1 << (value2 & 0x1F));
         } break;
 
+        case op_ishr: {
+            std::println("{:{}}", "ishr", OPCODE_PRINT_PAD_WIDTH);
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(value1 >> (value2 & 0x1F));
+        } break;
+
+        case op_iand: {
+            std::println("{:{}}", "iand", OPCODE_PRINT_PAD_WIDTH);
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(value1 & value2);
+        } break;
         case op_land: {
             std::println("{:{}}", "land", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int64_t>(frame.pop_stack());
@@ -576,6 +605,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             if (frame.operand_stack().size() != 1) {
                 throw std::runtime_error("ireturn: operand stack should have exactly one value");
             }
+            indent -= 2;
             return frame.pop_stack();
         }
 
@@ -584,6 +614,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             if (frame.operand_stack().size() != 1) {
                 throw std::runtime_error("areturn: operand stack should have exactly one value");
             }
+            indent -= 2;
             return frame.pop_stack();
         }
         case op_return: {
@@ -591,6 +622,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             if (!frame.operand_stack().empty()) {
                 throw std::runtime_error("return: operand stack should be empty");
             }
+            indent -= 2;
             return std::nullopt;
         }
         case op_getstatic: {

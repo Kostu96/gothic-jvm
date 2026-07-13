@@ -23,6 +23,12 @@ public class Font {
         return DEFAULT_FONT;
     }
 
+    public static Font getFont(int face, int style, int size) {
+        if (DEFAULT_FONT == null)
+            DEFAULT_FONT = new Font();
+        return DEFAULT_FONT;
+    }
+
     public int getHeight() {
         return 16;
     }

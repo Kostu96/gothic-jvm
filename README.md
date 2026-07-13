@@ -19,8 +19,9 @@ MIDlet to life.
 - A tree-walking bytecode interpreter covering constants, loads/stores, integer/long math,
   branches, field access, object/array creation, and `invokevirtual` / `invokespecial` /
   `invokestatic`.
-- Real `java.lang.String` objects materialized from string constants.
-- A small set of native methods (timing, canvas size, `getClass`, `String.charAt`, …).
+- Real `java.lang.String` objects materialized from string constants, interned and deduplicated.
+- A small set of native methods (timing, canvas size, `getClass`, `String.charAt`, resource
+  streaming, …).
 - An SDL3 window with a 2D renderer that opens on startup; the MIDlet screen will be drawn
   here in the future (currently it just clears each frame and handles the window-close event).
 
@@ -116,6 +117,7 @@ Core components:
 source/
   main.cpp            # entry point
   class_loader/       # .class parsing + classpath class loading
+  platform/           # SDL3 window + 2D renderer wrapper (Display)
   runtime/            # VM, interpreter, classes, heap, objects, frames
   utils/              # big-endian binary reader
 tests/                # GoogleTest unit tests
@@ -140,29 +142,31 @@ third_party/gtest/    # GoogleTest (submodule)
   `invokeinterface` is missing entirely.
 - Constant-pool parsing skips `Float` (tag 4) and `Double` (tag 6); a class that uses them
   fails to load.
-- String interning does not deduplicate yet — every string literal allocates a fresh
-  `java.lang.String` (the heap reserves a map for this but doesn't use it).
+- Many standard-library methods are declared `native` in the bootstrap `.java` sources but
+  have no C++ binding yet (e.g. `System.arraycopy`, `Class.forName`, `String.substring`,
+  `Graphics.fillRect`), so calling them throws instead of running.
 
 ### Known issues / things that could be broken
 
-- Only the ten `java_classes/*.java` sources listed in CMake are compiled; `java/lang/Object`
+- Only the eleven `java_classes/*.java` sources listed in CMake are compiled; `java/lang/Object`
   (a committed prebuilt `.class`) and the other runtime classes the MIDlet needs are not
   reproduced by a clean build, so `build/java_classes/` currently relies on vendored copies.
 - The native `getClass()` only handles ordinary instances — calling it on an array or a class
   mirror crashes instead of raising a Java error.
-- Test coverage regressed to just the binary reader, and the build still injects a
-  `TEST_FILES_DIR` path (`resources/test_files/`) that no longer exists.
-- Several natives are silent no-op stubs (`ResourceInputStream.init`, `Font.init`) and the
-  canvas size is hardcoded to 240×320, so anything relying on their real behaviour misbehaves
-  quietly.
+- Test coverage regressed to just the binary reader; there is no longer any automated coverage
+  of class-file parsing or the interpreter.
+- The MIDP graphics natives (`Font.init`, `Graphics.init`, `Image.init`) are silent no-op
+  stubs and the canvas size falls back to a hardcoded 240×320, so nothing is drawn to the
+  window yet. (Resource loading via `ResourceInputStream.init`/`read` is real, though.)
 
 ### Next steps
 
 - Introduce real exception objects and exception-handler-table dispatch.
 - Implement `invokeinterface`, `ACC_SUPER` super-calls, and `checkcast`/`instanceof` checks.
 - Parse `Float`/`Double` constants and widen overall opcode coverage.
-- Deduplicate interned strings and make a start on garbage collection.
-- Restore parser/interpreter test coverage (and fix the stale `TEST_FILES_DIR`).
+- Bind the remaining `native`-declared standard-library methods and make a start on garbage
+  collection.
+- Restore parser/interpreter test coverage.
 
 ## For contributors and AI agents
 

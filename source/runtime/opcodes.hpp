@@ -40,6 +40,7 @@ constexpr uint8_t op_aload_0 = 0x2A;
 constexpr uint8_t op_aload_1 = 0x2B;
 constexpr uint8_t op_aload_2 = 0x2C;
 constexpr uint8_t op_aload_3 = 0x2D;
+constexpr uint8_t op_iaload = 0x2E;
 
 constexpr uint8_t op_aaload = 0x32;
 
@@ -76,6 +77,9 @@ constexpr uint8_t op_idiv = 0x6C;
 
 constexpr uint8_t op_ishl = 0x78;
 
+constexpr uint8_t op_ishr = 0x7A;
+
+constexpr uint8_t op_iand = 0x7E;
 constexpr uint8_t op_land = 0x7F;
 constexpr uint8_t op_ior = 0x80;
 
