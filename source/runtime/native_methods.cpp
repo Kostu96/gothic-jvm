@@ -1,15 +1,12 @@
 #include "runtime/native_methods.hpp"
 
+#include "platform/display.hpp"
 #include "runtime/frame.hpp"
 #include "runtime/vm.hpp"
 
 #include <chrono>
 
 namespace {
-
-void not_implemented_stub(VM& vm, Frame& frame) {
-    throw std::runtime_error("native method not implemented!");
-}
 
 void com_kostu96_gjvm_ResourceInputStream_init(VM& vm, Frame& frame) {
     auto* name = std::get<Object*>(frame.pop_stack());
@@ -104,12 +101,14 @@ void java_lang_System_currentTimeMillis(VM& vm, Frame& frame) {
 
 void javax_microedition_lcdui_Canvas_getHeight(VM& vm, Frame& frame) {
     frame.pop_stack(); // this
-    frame.push_stack(static_cast<int32_t>(320)); // TODO(Kostu): temp: hardcoded height
+    int32_t height = vm.display() != nullptr ? vm.display()->height() : 320;
+    frame.push_stack(height);
 }
 
 void javax_microedition_lcdui_Canvas_getWidth(VM& vm, Frame& frame) {
     frame.pop_stack(); // this
-    frame.push_stack(static_cast<int32_t>(240)); // TODO(Kostu): temp: hardcoded width
+    int32_t width = vm.display() != nullptr ? vm.display()->width() : 240;
+    frame.push_stack(width);
 }
 
 }

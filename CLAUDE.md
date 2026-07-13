@@ -26,6 +26,9 @@ the classpath**, not hand-written C++ class descriptions. A small set of methods
 
 - **Language:** C++23 (`cxx_std_23`)
 - **Build:** CMake (min 3.28), MSVC/Visual Studio solution generated under `build/`
+- **Windowing/rendering:** SDL3 (window + 2D renderer + event loop), pulled in via CMake
+  `FetchContent` (`GIT_TAG release-3.4.12`, built as a shared lib; the DLL is copied next to
+  `app`/`app_tests` on Windows). Wrapped by the `Display` class (see [Windowing](#windowing)).
 - **Tests:** GoogleTest (`third_party/gtest`, a git submodule), discovered via `gtest_discover_tests`
 - **Executable:** `app` (entry `source/main.cpp`); core logic in static lib `app_lib`
 
@@ -37,7 +40,10 @@ cmake --build build
 ctest --test-dir build        # or run the app_tests target
 ```
 
-The top-level `CMakeLists.txt` also does `add_subdirectory(java_classes)`, which uses
+The top-level `CMakeLists.txt` fetches and builds **SDL3** via `FetchContent` (before defining
+`app_lib`), links it into `app_lib` as `SDL3::SDL3` (PUBLIC, so `app` and `app_tests` both get
+it), and on Windows copies `SDL3.dll` next to the `app` and `app_tests` binaries in a POST_BUILD
+step. It also does `add_subdirectory(java_classes)`, which uses
 `find_package(Java)` plus a `javac` custom command to compile the hand-maintained `.java`
 runtime sources into `build/java_classes/` (target `java_classes`, on which `app` depends).
 Building therefore needs a JDK whose `javac` still accepts `-source 1.3 -target 1.1`. Only the
@@ -85,11 +91,13 @@ Relevant on-disk assets:
 
 ```
 source/
-  main.cpp                      # entry: VM vm; add classpath entries; vm.run(main_class)
+  main.cpp                      # entry: open Display; VM vm; add classpath; run vm.run on a thread; window loop
   class_loader/                 # .class file parsing + classpath-based class loading
     class_file.{hpp,cpp}        # ClassFile: raw parse of constant pool, fields, methods, Code attr, MUTF-8 decode
     constant_pool_entry.hpp     # ConstantPoolEntry variant (Utf8/Integer/Long/Class/String/refs/NameAndType)
     class_loader.{hpp,cpp}      # ClassLoader: classpath resolve + cache; array classes via load_array
+  platform/
+    display.{hpp,cpp}           # Display: owns SDL_Window + SDL_Renderer; process_events/clear/present; width/height
   runtime/                      # execution model
     vm.{hpp,cpp}                # VM: owns NativeMethods/ClassLoader/Heap/Interpreter; boot Class+String; run+init MIDlet
     class.{hpp,cpp}             # Class/Method/Field; constant-pool resolution; binds ACC_NATIVE methods to callbacks
@@ -115,10 +123,16 @@ build/                          # generated VS solution/projects + <cwd> copies 
 
 ## Architecture & flow
 
-1. `main.cpp` (`args <main_class> [<class_path_entry>...]`) default-constructs a `VM`
-   and calls `vm.run(main_class)`; default main class is `HG`. With no extra args the
-   classpath defaults to `<cwd>/gothic3thebeginning`; otherwise each extra arg is added
-   as a classpath entry.
+1. `main.cpp` (`args <main_class> [<class_path_entry>...]`) opens the SDL3 `Display`
+   (240x320 window + renderer), default-constructs a `VM`, connects the two via
+   `vm.set_display(&display)`, and configures the classpath (default main class `HG`; with no
+   extra args the classpath defaults to `<cwd>/gothic3thebeginning`, otherwise each extra arg
+   is added as an entry). It then launches `vm.run(main_class)` on a **background
+   `std::thread`** (SDL must own the thread that created the window/pumps events, and a
+   MIDlet's `startApp()` may never return) and runs the window event/render loop on the main
+   thread (`process_events` -> `clear` -> `present`). When the user closes the window it calls
+   `vm.request_stop()` and joins the JVM thread. The JVM thread swallows `VmStopRequested`
+   (clean shutdown) and prints other exceptions to stderr.
 2. `VM` ctor wires its owned `NativeMethods` into the `ClassLoader`, adds
    `<cwd>/java_classes` to the classpath, eagerly loads `java/lang/Class` then
    `java/lang/String` (`java/lang/Object` loads transitively), registers the String class
@@ -193,6 +207,28 @@ build/                          # generated VS solution/projects + <cwd> copies 
   `RuntimeFieldRefInfo`, `RuntimeMethodRefInfo` are populated on first resolution and
   cache the resolved pointer. `RuntimeStringInfo`/`RuntimeInterfaceMethodRefInfo` exist in
   the variant but are not populated yet.
+- **Display** (`platform/display.{hpp,cpp}`): wraps SDL3. Ctor `Display(title, width, height)`
+  calls `SDL_Init(SDL_INIT_VIDEO)` + `SDL_CreateWindowAndRenderer` (vsync on); dtor tears it
+  all down. `process_events()` pumps SDL events and returns `false` on
+  `SDL_EVENT_QUIT`/`SDL_EVENT_WINDOW_CLOSE_REQUESTED`; `clear(r,g,b)`/`present()` drive the 2D
+  renderer; `width()`/`height()`/`renderer()` expose the surface. Non-owned by `VM` (a
+  `Display*` set via `VM::set_display`), so the VM can run headless in tests.
+
+### Windowing
+`main.cpp` constructs one `Display` on the stack (240x320, title `gothic-jvm`) before booting
+the `VM`, wires it in with `vm.set_display(&display)`, then runs `vm.run` on a background
+`std::thread` while the **main thread** spins the window event/render loop
+(`while (display.process_events()) { clear(0,0,0); present(); }`). SDL owns the main thread
+(window creation + event pump must live there), so the JVM runs concurrently; the `Display`'s
+`width_`/`height_` are set once in the ctor and only read afterwards, so the JVM thread reads
+them race-free. On window close, `main` calls `vm.request_stop()` (an atomic the interpreter
+loop checks each instruction, throwing `VmStopRequested` to unwind a MIDlet that never returns
+from `startApp()`) and joins the JVM thread. Native callbacks reach the screen through
+`vm.display()` (currently just Canvas size). Actual MIDP `Graphics`/`Canvas.paint` rendering
+into the renderer is still TODO; `Graphics.java` is an empty placeholder. Note the deeper
+gap: proper MIDlet execution also needs Java thread support, `Display.setCurrent`, and a
+`paint`/`repaint`/`serviceRepaints` event-dispatch model, none of which exist yet — so only
+narrow single-threaded, self-rendering MIDlets could run even with the non-blocking loop.
 
 ### String modeling
 `Heap::new_interned_string(str)` builds a real `java/lang/String` instance: it allocates a
@@ -247,7 +283,8 @@ Native bindings live in a dedicated `NativeMethods` class (`native_methods.{hpp,
 a method flagged `ACC_NATIVE`, it looks up that key and stores the resulting pointer in
 `Method::native_callback`. Currently registered:
 - `java/lang/System.currentTimeMillis()J` — real wall-clock millis.
-- `javax/microedition/lcdui/Canvas.getWidth()I` / `getHeight()I` — hardcoded 240 / 320.
+- `javax/microedition/lcdui/Canvas.getWidth()I` / `getHeight()I` — return the connected
+  `Display`'s width/height (`vm.display()`), falling back to 240 / 320 when no display is set.
 - `java/lang/Object.getClass()Ljava/lang/Class;` — returns the canonical heap `Class` mirror
   (only handles `InstanceData` receivers).
 - `java/lang/Class.getName()Ljava/lang/String;` — interns a String of the mirrored name.

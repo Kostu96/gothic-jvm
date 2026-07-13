@@ -21,6 +21,8 @@ MIDlet to life.
   `invokestatic`.
 - Real `java.lang.String` objects materialized from string constants.
 - A small set of native methods (timing, canvas size, `getClass`, `String.charAt`, …).
+- An SDL3 window with a 2D renderer that opens on startup; the MIDlet screen will be drawn
+  here in the future (currently it just clears each frame and handles the window-close event).
 
 ## Getting started
 
@@ -31,6 +33,8 @@ MIDlet to life.
 - A JDK providing `javac` (old enough to accept `-source 1.3 -target 1.1`) — CMake compiles
   the bootstrap `java_classes/*.java` sources at build time.
 - The GoogleTest submodule under `third_party/gtest`.
+- SDL3 is fetched and built automatically by CMake (`FetchContent`), so no manual install is
+  needed — but the first configure clones and builds SDL from source, which takes a while.
 
 ### Clone
 
@@ -80,10 +84,12 @@ directory**, run it from a directory that contains `java_classes/` and
 
 At a high level:
 
-1. `main` constructs a `VM` for the chosen main class and configures the classpath.
+1. `main` opens the SDL3 `Display` (window + renderer), constructs a `VM` for the chosen main
+   class, connects the display to it, and configures the classpath.
 2. The `VM` eagerly loads a few bootstrap classes, then loads and initializes the main class.
 3. It instantiates the MIDlet, runs its `<init>`, and calls `startApp()`.
 4. The `Interpreter` executes bytecode frame by frame, dispatching opcodes in a large switch.
+5. `main` then runs the window event/render loop until the user closes the window.
 
 ```mermaid
 flowchart LR

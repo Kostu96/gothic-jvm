@@ -85,6 +85,9 @@ template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 std::optional<Value> Interpreter::run(Frame& frame) {
     while (frame.get_pc() < frame.method().code.size()) {
+        if (vm_.stop_requested()) {
+            throw VmStopRequested{};
+        }
         std::print("Stack: [");
         for (size_t i = 0; i < frame.operand_stack().size(); ++i) {
             if (i > 0) {
