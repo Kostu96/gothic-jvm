@@ -432,6 +432,20 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             frame.push_stack(frame.peek_stack());
         } break;
 
+        case op_dup2: {
+            std::println("{:{}}", "dup2", OPCODE_PRINT_PAD_WIDTH);
+            auto value1 = frame.peek_stack();
+            if (std::holds_alternative<int64_t>(value1) || std::holds_alternative<double>(value1)) {
+                // If the top value is a long or double, we only need to duplicate it once.
+                frame.push_stack(value1);
+            }
+            else {
+                auto value2 = frame.peek_stack(1);
+                frame.push_stack(value2);
+                frame.push_stack(value1);
+            }
+        } break;
+
         case op_iadd: {
             std::println("{:{}}", "iadd", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int32_t>(frame.pop_stack());
@@ -462,6 +476,17 @@ std::optional<Value> Interpreter::run(Frame& frame) {
                 throw std::runtime_error("idiv: division by zero");
             }
             frame.push_stack(value1 / value2);
+        } break;
+
+        case op_irem: {
+            std::println("{:{}}", "irem", OPCODE_PRINT_PAD_WIDTH);
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            if (value2 == 0) {
+                // In a complete VM this would raise ArithmeticException.
+                throw std::runtime_error("irem: division by zero");
+            }
+            frame.push_stack(value1 % value2);
         } break;
 
         case op_ishl: {
@@ -510,12 +535,27 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             frame.locals()[index] = std::get<int32_t>(frame.locals()[index]) + constant;
         } break;
 
+        case op_i2b: {
+            std::println("{:{}}", "i2b", OPCODE_PRINT_PAD_WIDTH);
+            auto value = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(static_cast<int32_t>(static_cast<int8_t>(value)));
+        } break;
+
         case op_i2s: {
             std::println("{:{}}", "i2s", OPCODE_PRINT_PAD_WIDTH);
             auto value = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(static_cast<int32_t>(static_cast<int16_t>(value)));
         } break;
 
+        case op_ifeq: {
+            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
+            std::println("{:{}} {:04X}", "ifeq", OPCODE_PRINT_PAD_WIDTH, offset);
+
+            auto value = std::get<int32_t>(frame.pop_stack());
+            if (value == 0) {
+                frame.branch(offset - 3); // -3 to account for the size of the instruction itself
+            }
+        } break;
         case op_ifne: {
             const auto offset = static_cast<int16_t>(frame.pop_code_u16());
             std::println("{:{}} {:04X}", "ifne", OPCODE_PRINT_PAD_WIDTH, offset);

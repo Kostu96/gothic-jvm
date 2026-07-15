@@ -22,8 +22,10 @@ MIDlet to life.
 - Real `java.lang.String` objects materialized from string constants, interned and deduplicated.
 - A small set of native methods (timing, canvas size, `getClass`, `String.charAt`, resource
   streaming, …).
-- An SDL3 window with a 2D renderer that opens on startup; the MIDlet screen will be drawn
-  here in the future (currently it just clears each frame and handles the window-close event).
+- An SDL3 window with a 2D renderer that opens on startup, plus real MIDP drawing primitives
+  (`Graphics.fillRect`/`drawString`, `Image` surfaces) backed by SDL — though these currently
+  render to **offscreen** surfaces that are not yet blitted to the window (which just clears
+  each frame and handles the window-close event).
 
 ## Getting started
 
@@ -144,20 +146,22 @@ third_party/gtest/    # GoogleTest (submodule)
   fails to load.
 - Many standard-library methods are declared `native` in the bootstrap `.java` sources but
   have no C++ binding yet (e.g. `System.arraycopy`, `Class.forName`, `String.substring`,
-  `Graphics.fillRect`), so calling them throws instead of running.
+  `String.replace`), so calling them throws instead of running.
 
 ### Known issues / things that could be broken
 
-- Only the eleven `java_classes/*.java` sources listed in CMake are compiled; `java/lang/Object`
+- Only the thirteen `java_classes/*.java` sources listed in CMake are compiled; `java/lang/Object`
   (a committed prebuilt `.class`) and the other runtime classes the MIDlet needs are not
   reproduced by a clean build, so `build/java_classes/` currently relies on vendored copies.
 - The native `getClass()` only handles ordinary instances — calling it on an array or a class
   mirror crashes instead of raising a Java error.
 - Test coverage regressed to just the binary reader; there is no longer any automated coverage
   of class-file parsing or the interpreter.
-- The MIDP graphics natives (`Font.init`, `Graphics.init`, `Image.init`) are silent no-op
-  stubs and the canvas size falls back to a hardcoded 240×320, so nothing is drawn to the
-  window yet. (Resource loading via `ResourceInputStream.init`/`read` is real, though.)
+- The MIDP graphics natives now do real work — `Image.init` allocates an SDL surface,
+  `Graphics.init`/`fillRect`/`drawString` render onto it, and `Image.getRGB` reads it back —
+  but they draw to **offscreen** surfaces that are never blitted to the window, so nothing is
+  visible on screen yet. `Font.init` remains a no-op stub. (Resource loading via
+  `ResourceInputStream.init`/`read` is real too.)
 
 ### Next steps
 

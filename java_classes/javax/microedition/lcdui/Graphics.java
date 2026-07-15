@@ -2,21 +2,91 @@ package javax.microedition.lcdui;
 
 public class Graphics {
 
-    public void fillRect(int x, int y, int width, int height) {
-        fillRect(x, y, width, height, color);
+    public static final int HCENTER = 1;
+	public static final int VCENTER = 2;
+	public static final int LEFT = 4;
+	public static final int RIGHT = 8;
+	public static final int TOP = 16;
+	public static final int BOTTOM = 32;
+	public static final int BASELINE = 64;
+
+    public void drawString(String str, int x, int y, int anchor) {
+        if (str == null) {
+            throw new NullPointerException();
+        }
+ 
+        if (anchor == 0) {
+	        anchor = TOP | LEFT;
+	    } else if (!checkAnchor(anchor, VCENTER)) {
+            throw new IllegalArgumentException();
+        }
+
+        //x += transX; TODO(Kostu): commented until translation is needed
+        //y += transY;
+
+        if ((anchor & LEFT) == 0) {
+            int strWidth = font.stringWidth(str);
+            if ((anchor & RIGHT) != 0) {
+                x -= strWidth;
+            } else if ((anchor & HCENTER) != 0) {
+                x -= (strWidth / 2);
+            }
+        }
+
+        if ((anchor & BASELINE) == 0) {
+            if ((anchor & TOP) != 0) {
+                y += font.getBaselinePosition();
+            } else if ((anchor & BOTTOM) != 0) {
+                y -= font.getHeight() - 
+                     font.getBaselinePosition();
+            }
+        }
+
+        drawStringNative(str, x, y);
     }
+
+    public native void fillRect(int x, int y, int width, int height);
 
     public void setColor(int rgb) {
         color = 0xFF000000 | (rgb & 0x00FFFFFF);
+    }
+
+    public void setFont(Font font) {
+        this.font = font == null ? Font.getDefaultFont() : font;
     }
 
     Graphics(Image image) {
         init(image);
     }
 
-    private native void fillRect(int x, int y, int width, int height, int color);
+    private boolean checkAnchor(int anchor, int illegal_vpos) {
+        /* optimize for most frequent case */
+        if (anchor == (TOP|LEFT) || anchor == 0) {
+            return true;
+        }
+
+        boolean result = (anchor > 0)  && (anchor < (BASELINE << 1)) &&
+	                     ((anchor & illegal_vpos) == 0);
+
+        if (result) {
+            int n = anchor & (TOP | BOTTOM | BASELINE | VCENTER);
+            /* exactly one bit set */
+            result = (n != 0) && ((n & (n - 1)) == 0); 
+        }
+
+        if (result) {
+            int n = anchor & (LEFT | RIGHT | HCENTER);
+            /* exactly one bit set */
+            result = (n != 0) && ((n & (n - 1)) == 0);
+        }
+	
+        return result;
+    }
+
+    private native void drawStringNative(String str, int x, int y);
 
     private native void init(Image image);
 
     private int color = -1;
+    private Font font;
 }

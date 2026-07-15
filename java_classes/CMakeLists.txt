@@ -10,6 +10,8 @@ set(JAVA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/System.java
 
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Canvas.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Display.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Displayable.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Font.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Graphics.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Image.java

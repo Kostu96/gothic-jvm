@@ -7,19 +7,32 @@
 #include <vector>
 
 class Class;
+struct SDL_Surface;
+struct SDL_Renderer;
 
 struct ResourceInputStreamNativeData {
     std::vector<uint8_t> buffer;
-    size_t position = 0;
+    size_t position;
 };
 
 struct StringNativeData {
     std::string value;
 };
 
+struct ImageNativeData {
+    SDL_Surface* sdl_surface = nullptr;
+};
+
+struct GraphicsNativeData {
+    SDL_Renderer* sdl_renderer = nullptr;
+    SDL_Surface* sdl_surface = nullptr;
+};
+
 using NativePayload = std::variant<std::monostate,
                                    ResourceInputStreamNativeData,
-                                   StringNativeData>;
+                                   StringNativeData,
+                                   ImageNativeData,
+                                   GraphicsNativeData>;
 
 struct InstanceData {
     Class& type;

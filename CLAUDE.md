@@ -47,7 +47,7 @@ step. It also does `add_subdirectory(java_classes)`, which uses
 `find_package(Java)` plus a `javac` custom command to compile the hand-maintained `.java`
 runtime sources into `build/java_classes/` (target `java_classes`, on which `app` depends).
 Building therefore needs a JDK whose `javac` still accepts `-source 1.3 -target 1.1`. Only the
-eleven sources listed in `java_classes/CMakeLists.txt` are compiled (see the classpath notes
+thirteen sources listed in `java_classes/CMakeLists.txt` are compiled (see the classpath notes
 and gaps for what else `build/java_classes/` must contain at runtime).
 
 The `tests/` target no longer injects a `TEST_FILES_DIR` compile definition (that stale
@@ -68,7 +68,8 @@ At startup the classpath is assembled from the **current working directory**, no
 Relevant on-disk assets:
 - `java_classes/` (repo root) — hand-maintained bootstrap runtime classes kept as **`.java`
   sources** (`com/kostu96/gjvm/ResourceInputStream`, `com/nokia/mid/ui/FullCanvas`,
-  `java/lang/{Class,String,System}`, `javax/microedition/lcdui/{Canvas,Font,Graphics,Image}`,
+  `java/lang/{Class,String,System}`,
+  `javax/microedition/lcdui/{Canvas,Display,Displayable,Font,Graphics,Image}`,
   `javax/microedition/midlet/{MIDlet,MIDletStateChangeException}`), plus a prebuilt
   `java/lang/Object.class` (there is no `Object.java`). `Command.java` also lives here but is
   **not** in the compile list. The CMake `java_classes` target compiles these with `javac`
@@ -163,9 +164,12 @@ build/                          # generated VS solution/projects + <cwd> copies 
   via `std::get_if`/`std::holds_alternative` on `.data`.
   - `InstanceData` holds `Class& type` + `vector<Value> fields` (indexed by field slot) + a
     `native_payload` (`NativePayload = variant<monostate, ResourceInputStreamNativeData,
-    StringNativeData>`, declared in `object.hpp`). The payload backs C++-side state for objects
-    that need it: `String` instances carry a `StringNativeData{value}` (the raw `std::string`),
-    and `ResourceInputStream` instances carry a `ResourceInputStreamNativeData{buffer, position}`.
+    StringNativeData, ImageNativeData, GraphicsNativeData>`, declared in `object.hpp`). The
+    payload backs C++-side state for objects that need it: `String` instances carry a
+    `StringNativeData{value}` (the raw `std::string`), `ResourceInputStream` instances carry a
+    `ResourceInputStreamNativeData{buffer, position}`, `Image` instances carry an
+    `ImageNativeData{sdl_surface}`, and `Graphics` instances carry a
+    `GraphicsNativeData{sdl_renderer, sdl_surface}`.
   - `PrimitiveArrayData` holds a `variant` of typed element vectors (boolean/byte→uint8,
     char→char16, short→int16, int→int32, long→int64, float, double) with `ElementType`
     tags matching the JVM `newarray` atype codes (4..11); `get`/`set` widen to `Value`.
@@ -232,13 +236,15 @@ runs `vm.run` on a background
 them race-free. On window close, `main` calls `vm.request_stop()` (an atomic the interpreter
 loop checks each instruction, throwing `VmStopRequested` to unwind a MIDlet that never returns
 from `startApp()`) and joins the JVM thread. Native callbacks reach the screen through
-`vm.display()` (currently just Canvas size). Actual MIDP `Graphics`/`Canvas.paint` rendering
-into the renderer is still TODO: `Graphics.java` and `Image.java` now model the MIDP API
-(`fillRect`/`setColor`/`getGraphics`/`createImage`), but their `init`/`fillRect` natives are
-no-op stubs, so nothing is drawn yet. Note the deeper
-gap: proper MIDlet execution also needs Java thread support, `Display.setCurrent`, and a
-`paint`/`repaint`/`serviceRepaints` event-dispatch model, none of which exist yet — so only
-narrow single-threaded, self-rendering MIDlets could run even with the non-blocking loop.
+`vm.display()` (Canvas size) and through the MIDP `Graphics`/`Image` natives, which now do
+**real** 2D drawing — but onto **offscreen** SDL surfaces, not the on-screen window.
+`Image.init` allocates an `SDL_Surface` (ARGB8888); `Graphics.init` wraps a surface in an
+`SDL_CreateSoftwareRenderer`; `Graphics.fillRect`/`drawStringNative` render into it; and
+`Image.getRGB` reads pixels back. The window's own renderer is still only cleared to black and
+presented each frame — nothing blits those offscreen surfaces to the window yet. `Display.java`
+models `getDisplay`/`setCurrent`, but `setCurrent` is a no-op and there is no
+`paint`/`repaint`/`serviceRepaints` event-dispatch model, nor Java thread support — so full
+MIDlet execution is still not wired up.
 
 ### String modeling
 `Heap::new_interned_string(str)` builds a real `java/lang/String` instance: it allocates a
@@ -264,10 +270,11 @@ Loads/stores: `iload` (0x15), `aload` (0x19), `iload_0..3` (0x1A–0x1D),
 `castore` (0x55), `sastore` (0x56).
 `aastore` performs a partial `ArrayStoreException`-style check (a stored `InstanceData`'s
 type must match the array's `element_type`).
-Stack/math: `dup` (0x59), `iadd` (0x60), `isub` (0x64), `imul` (0x68), `idiv` (0x6C),
-`ishl` (0x78), `ishr` (0x7A), `iand` (0x7E), `land` (0x7F), `ior` (0x80), `lxor` (0x83),
-`iinc` (0x84), `i2s` (0x93).
-Branches: `ifne` (0x9A), `iflt` (0x9B), `ifge` (0x9C), `ifle` (0x9E),
+Stack/math: `dup` (0x59), `dup2` (0x5C, single-value for a long/double top),
+`iadd` (0x60), `isub` (0x64), `imul` (0x68), `idiv` (0x6C), `irem` (0x70), `ishl` (0x78),
+`ishr` (0x7A), `iand` (0x7E), `land` (0x7F), `ior` (0x80), `lxor` (0x83), `iinc` (0x84),
+`i2b` (0x91), `i2s` (0x93).
+Branches: `ifeq` (0x99), `ifne` (0x9A), `iflt` (0x9B), `ifge` (0x9C), `ifle` (0x9E),
 `if_icmpeq` (0x9F), `if_icmpne` (0xA0), `if_icmplt` (0xA1), `if_icmpge` (0xA2),
 `goto` (0xA7), `ifnull` (0xC6), `ifnonnull` (0xC7).
 Returns: `ireturn` (0xAC), `areturn` (0xB0), `return` (0xB1).
@@ -303,7 +310,8 @@ a method flagged `ACC_NATIVE`, it looks up that key and stores the resulting poi
 `Method::native_callback`. Currently registered:
 - `java/lang/System.currentTimeMillis()J` — real wall-clock millis.
 - `javax/microedition/lcdui/Canvas.getWidth()I` / `getHeight()I` — return the connected
-  `Display`'s width/height (`vm.display()`), falling back to 240 / 320 when no display is set.
+  `Display`'s width/height; there is no null-display fallback, so they dereference
+  `vm.display()` directly.
 - `java/lang/Object.getClass()Ljava/lang/Class;` — returns the canonical heap `Class` mirror
   (only handles `InstanceData` receivers).
 - `java/lang/Class.getName()Ljava/lang/String;` — interns a String of the mirrored name.
@@ -314,8 +322,17 @@ a method flagged `ACC_NATIVE`, it looks up that key and stores the resulting poi
   `ResourceInputStreamNativeData` payload; `ResourceInputStream.read()I` returns the next byte
   from that buffer. Both are bound to real **private native** methods (declared `native` in the
   `.java` source and called from a plain constructor), not to `<init>`.
-- `javax/microedition/lcdui/Font.init()V`, `Graphics.init(Ljavax/microedition/lcdui/Image;)V`
-  and `Image.init(II)V` — no-op stubs, likewise bound to private native `init` methods.
+- `javax/microedition/lcdui/Font.init()V` — still a no-op stub (bound to a private native `init`).
+- `javax/microedition/lcdui/Image.init(II)V` — allocates an offscreen `SDL_Surface`
+  (`SDL_CreateSurface`, ARGB8888) into the instance's `ImageNativeData`;
+  `Image.getRGB([IIIIIII)V` reads pixels back from that surface into an `int[]`.
+- `javax/microedition/lcdui/Graphics.init(Ljavax/microedition/lcdui/Image;)V` — wraps the
+  backing `Image`'s surface in an `SDL_CreateSoftwareRenderer`, stored in `GraphicsNativeData`.
+- `javax/microedition/lcdui/Graphics.fillRect(IIII)V` — sets the draw color from the Graphics
+  `color:I` field and fills an `SDL_FRect` via `SDL_RenderFillRect`.
+- `javax/microedition/lcdui/Graphics.drawStringNative(Ljava/lang/String;II)V` — sets the color
+  then draws text via `SDL_RenderDebugText` (the public `Graphics.drawString(...)` computes the
+  anchor offsets in Java and delegates here).
 
 ## Conventions
 - Headers `.hpp`, sources `.cpp`; include via paths rooted at `source/` (e.g. `#include "runtime/vm.hpp"`).
@@ -344,16 +361,16 @@ a method flagged `ACC_NATIVE`, it looks up that key and stores the resulting poi
 - **Dead / commented code:** `decode_modified_utf8` in `class_file.cpp` is defined but never
   called; a commented-out `java_lang_Class_newInstance` native remains in
   `native_methods.cpp`; `Class::resolve_constant` has an unreachable fallback block after its
-  `std::visit` return; several `TODO(Kostu)` markers persist (empty `Font.init`/`Graphics.init`/
-  `Image.init` bodies, hardcoded canvas fallback size).
+  `std::visit` return; several `TODO(Kostu)` markers persist (empty `Font.init` body, the
+  `overloaded` visitor "move this to utils", the commented-out `Graphics` translation offsets,
+  and a "set color once" note shared by `fillRect`/`drawStringNative`).
 - **Many `.java` runtime methods are declared `native` but have no C++ binding** and would
   throw "Failed to call native" if invoked: `java/lang/System.{arraycopy,identityHashCode,
   getProperty,exit,gc}`, `java/lang/Class.{forName,newInstance,isInstance,isAssignableFrom,
-  isInterface,isArray}`, `java/lang/String.{replace,substring,init}`, and
-  `javax/microedition/lcdui/Graphics.fillRect(IIIII)V`. Conversely, `String.indexOf(II)I` is
-  registered in `NativeMethods` but `java/lang/String.java` declares no such method, so that
-  binding never attaches.
-- **The CMake javac step only compiles the eleven listed sources.** `java_classes/java/lang/
+  isInterface,isArray}`, and `java/lang/String.{replace,substring,init}`. Conversely,
+  `String.indexOf(II)I` is registered in `NativeMethods` but `java/lang/String.java` declares no
+  such method, so that binding never attaches.
+- **The CMake javac step only compiles the thirteen listed sources.** `java_classes/java/lang/
   Object.class` is a committed prebuilt file (no `Object.java`), and the other runtime classes
   the MIDlet needs (`java/io/*`, `java/util/*`, `StringBuffer`, …) are vendored copies that
   currently sit in `build/java_classes/`; nothing copies them from `resources/classes/`, so a

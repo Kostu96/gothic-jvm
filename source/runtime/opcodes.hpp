@@ -67,6 +67,8 @@ constexpr uint8_t op_sastore = 0x56;
 
 constexpr uint8_t op_dup = 0x59;
 
+constexpr uint8_t op_dup2 = 0x5C;
+
 constexpr uint8_t op_iadd = 0x60;
 
 constexpr uint8_t op_isub = 0x64;
@@ -74,6 +76,8 @@ constexpr uint8_t op_isub = 0x64;
 constexpr uint8_t op_imul = 0x68;
 
 constexpr uint8_t op_idiv = 0x6C;
+
+constexpr uint8_t op_irem = 0x70;
 
 constexpr uint8_t op_ishl = 0x78;
 
@@ -86,8 +90,11 @@ constexpr uint8_t op_ior = 0x80;
 constexpr uint8_t op_lxor = 0x83;
 constexpr uint8_t op_iinc = 0x84;
 
+constexpr uint8_t op_i2b = 0x91;
+
 constexpr uint8_t op_i2s = 0x93;
 
+constexpr uint8_t op_ifeq = 0x99;
 constexpr uint8_t op_ifne = 0x9A;
 constexpr uint8_t op_iflt = 0x9B;
 constexpr uint8_t op_ifge = 0x9C;

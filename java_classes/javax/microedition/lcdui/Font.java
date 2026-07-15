@@ -29,6 +29,10 @@ public class Font {
         return DEFAULT_FONT;
     }
 
+    public int getBaselinePosition() {
+        return 14;
+    }
+
     public int getHeight() {
         return 16;
     }

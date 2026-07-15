@@ -4,6 +4,9 @@
 #include "runtime/frame.hpp"
 #include "runtime/vm.hpp"
 
+#include <SDL3/SDL_surface.h>
+#include <SDL3/SDL_render.h>
+
 #include <chrono>
 #include <print>
 
@@ -132,17 +135,94 @@ void javax_microedition_lcdui_Font_init(VM& vm, Frame& frame) {
     // TODO(Kostu): implement font initialization
 }
 
+void javax_microedition_lcdui_Graphics_drawStringNative(VM& vm, Frame& frame) {
+    auto y = std::get<int32_t>(frame.pop_stack());
+    auto x = std::get<int32_t>(frame.pop_stack());
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& str_native = std::get<StringNativeData>(str_instance.native_payload);
+    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& gfx_native = std::get<GraphicsNativeData>(gfx_instance.native_payload);
+    
+    // TODO(Kostu): set color once
+    auto* color_field = gfx_instance.type.find_field("color", "I");
+    auto color = std::get<int32_t>(gfx_instance.fields[color_field->slot]);
+    SDL_SetRenderDrawColor(gfx_native.sdl_renderer,
+        (color >> 24) & 0xFF, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
+
+    SDL_RenderDebugText(gfx_native.sdl_renderer,
+                        static_cast<float>(x), static_cast<float>(y),
+                        str_native.value.c_str());
+}
+
+void javax_microedition_lcdui_Graphics_fillRect(VM& vm, Frame& frame) {
+    auto height = std::get<int32_t>(frame.pop_stack());
+    auto width = std::get<int32_t>(frame.pop_stack());
+    auto y = std::get<int32_t>(frame.pop_stack());
+    auto x = std::get<int32_t>(frame.pop_stack());
+    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& gfx_native = std::get<GraphicsNativeData>(gfx_instance.native_payload);
+
+    auto* color_field = gfx_instance.type.find_field("color", "I");
+    auto color = std::get<int32_t>(gfx_instance.fields[color_field->slot]);
+    SDL_SetRenderDrawColor(gfx_native.sdl_renderer,
+        (color >> 24) & 0xFF, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
+    
+    const SDL_FRect rect{
+        .x = static_cast<float>(x), .y = static_cast<float>(y),
+        .w = static_cast<float>(width), .h = static_cast<float>(height)
+    };
+    SDL_RenderFillRect(gfx_native.sdl_renderer, &rect);
+}
+
 void javax_microedition_lcdui_Graphics_init(VM& vm, Frame& frame) {
-    auto* image_obj = std::get<Object*>(frame.pop_stack());
-    auto* graphisc_obj = std::get<Object*>(frame.pop_stack());
-    // TODO(Kostu): implement image creation
+    auto& img_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& img_native = std::get<ImageNativeData>(img_instance.native_payload);
+    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+
+    GraphicsNativeData native_data{
+        .sdl_renderer = SDL_CreateSoftwareRenderer(img_native.sdl_surface),
+        .sdl_surface = img_native.sdl_surface
+    };
+    gfx_instance.native_payload = native_data;
+}
+
+void javax_microedition_lcdui_Image_getRGB(VM& vm, Frame& frame) {
+    auto height = std::get<int32_t>(frame.pop_stack());
+    auto width = std::get<int32_t>(frame.pop_stack());
+    auto y = std::get<int32_t>(frame.pop_stack());
+    auto x = std::get<int32_t>(frame.pop_stack());
+    auto scan_length = std::get<int32_t>(frame.pop_stack());
+    auto offset = std::get<int32_t>(frame.pop_stack());
+    auto& rgb_data = std::get<PrimitiveArrayData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& img_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& img_native = std::get<ImageNativeData>(img_instance.native_payload);
+
+    if (SDL_MUSTLOCK(img_native.sdl_surface)) {
+        SDL_LockSurface(img_native.sdl_surface);
+    }
+    for (int row = 0; row < height; ++row) {
+        auto* src = reinterpret_cast<const Uint32*>(
+            static_cast<const Uint8*>(
+                img_native.sdl_surface->pixels) + (y + row) * img_native.sdl_surface->pitch);
+        for (int col = 0; col < width; ++col) {
+            int dst = offset + row * scan_length + col; // scanlength may be negative
+            rgb_data.set(dst, static_cast<int32_t>(src[x + col]));
+        }
+    }
+    if (SDL_MUSTLOCK(img_native.sdl_surface)) {
+        SDL_UnlockSurface(img_native.sdl_surface);
+    }
 }
 
 void javax_microedition_lcdui_Image_init(VM& vm, Frame& frame) {
     auto height = std::get<int32_t>(frame.pop_stack());
     auto width = std::get<int32_t>(frame.pop_stack());
-    auto* image_obj = std::get<Object*>(frame.pop_stack());
-    // TODO(Kostu): implement image creation
+    auto& img_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    
+    ImageNativeData native_data{
+        .sdl_surface = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_ARGB8888)
+    };
+    img_instance.native_payload = native_data;
 }
 
 }
@@ -164,8 +244,12 @@ NativeMethods::NativeMethods() {
         { "javax/microedition/lcdui/Canvas.getHeight()I", javax_microedition_lcdui_Canvas_getHeight },
         { "javax/microedition/lcdui/Canvas.getWidth()I",  javax_microedition_lcdui_Canvas_getWidth },
         { "javax/microedition/lcdui/Font.init()V",        javax_microedition_lcdui_Font_init },
+        { "javax/microedition/lcdui/Graphics.drawStringNative(Ljava/lang/String;II)V",
+           javax_microedition_lcdui_Graphics_drawStringNative },
+        { "javax/microedition/lcdui/Graphics.fillRect(IIII)V", javax_microedition_lcdui_Graphics_fillRect },
         { "javax/microedition/lcdui/Graphics.init(Ljavax/microedition/lcdui/Image;)V",
            javax_microedition_lcdui_Graphics_init },
+        { "javax/microedition/lcdui/Image.getRGB([IIIIIII)V", javax_microedition_lcdui_Image_getRGB },
         { "javax/microedition/lcdui/Image.init(II)V",     javax_microedition_lcdui_Image_init }
     });
 }
