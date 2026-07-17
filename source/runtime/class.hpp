@@ -15,6 +15,7 @@ class ClassLoader;
 class Frame;
 class Heap;
 class NativeMethods;
+class Thread;
 class VM;
 
 struct Field {
@@ -28,13 +29,14 @@ struct Field {
 
 struct Method {
     Class& owner;
-    bool is_static;
-    bool is_native;
     std::string_view name;
     std::string_view descriptor;
     std::vector<uint8_t> arg_slot_widths; // local slots per argument (incl. `this`); long/double occupy 2
     uint16_t max_stack;
     uint16_t max_locals;
+    bool is_static;
+    bool is_native;
+    bool is_class_initializer;
     std::span<const std::byte> code;
     std::span<const ExceptionTableEntry> exception_table;
     const NativeMethods::Callback* native_callback;
@@ -44,10 +46,10 @@ struct Method {
 class Class {
 public:
     enum class InitState {
-        Loaded,        // parsed, but <clinit> not yet started
-        Initializing,  // <clinit> currently running on some thread
-        Initialized,   // <clinit> completed normally (or class has none)
-        Failed         // <clinit> threw; further use must rethrow NoClassDefFoundError
+        Loaded,       // parsed, but <clinit> not yet started
+        Initializing, // <clinit> currently running on some thread
+        Initialized,  // <clinit> completed normally (or class has none)
+        Failed        // <clinit> threw; further use must rethrow NoClassDefFoundError
     };
 
     enum class Kind {
@@ -59,9 +61,11 @@ public:
     Class(const char* filename, ClassLoader& class_loader);
     explicit Class(std::string name, Class* component_type = nullptr);
 
+    bool needs_initialization() const noexcept { return init_state_ == InitState::Loaded; }
+    void ensure_initialized(Thread& thread);
+    void set_initialized() noexcept { init_state_ = InitState::Initialized; }
+
     Kind kind() const noexcept { return kind_; }
-    InitState init_state() const noexcept { return init_state_; }
-    void set_init_state(InitState state) noexcept { init_state_ = state; }
 
     bool treat_super_specially() const noexcept { return treat_super_specially_; }
     bool is_interface() const noexcept { return is_interface_; }

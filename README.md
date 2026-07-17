@@ -15,10 +15,12 @@ MIDlet to life.
 
 - Parsing `.class` files (constant pool, fields, methods, the `Code` attribute, MUTF-8).
 - Classpath-based class loading with caching, plus synthesized array and primitive classes.
-- Class initialization (`<clinit>`) with superclass-first ordering and state tracking.
-- A tree-walking bytecode interpreter covering constants, loads/stores, integer/long math,
-  branches, field access, object/array creation, and `invokevirtual` / `invokespecial` /
-  `invokestatic`.
+- Lazy, superclass-first class initialization (`<clinit>`) driven off an explicit per-thread
+  frame stack rather than C++ recursion.
+- A bytecode interpreter that runs a bounded instruction budget against a thread's frame stack
+  (`run(thread, n)`) — groundwork for cooperative green threads — covering constants,
+  loads/stores, integer/long math, branches, field access, object/array creation, and
+  `invokevirtual` / `invokespecial` / `invokestatic`.
 - Real `java.lang.String` objects materialized from string constants, interned and deduplicated.
 - A small set of native methods (timing, canvas size, `getClass`, `String.charAt`, resource
   streaming, …).
@@ -87,12 +89,17 @@ directory**, run it from a directory that contains `java_classes/` and
 
 At a high level:
 
-1. `main` opens the SDL3 `Display` (window + renderer), constructs a `VM` for the chosen main
-   class, connects the display to it, and configures the classpath.
-2. The `VM` eagerly loads a few bootstrap classes, then loads and initializes the main class.
-3. It instantiates the MIDlet, runs its `<init>`, and calls `startApp()`.
-4. The `Interpreter` executes bytecode frame by frame, dispatching opcodes in a large switch.
-5. `main` then runs the window event/render loop until the user closes the window.
+1. `main` opens the SDL3 `Display` (window + renderer), constructs a `VM`, tells it the chosen
+   main class, connects the display, and configures the classpath.
+2. `VM::run` (driven on a background thread) walks a small bootstrap state machine: it
+   initializes `java/lang/String`, then the main class, then instantiates the MIDlet, runs its
+   `<init>`, and calls `startApp()` — each step scheduled as frames on the VM's main `Thread`.
+3. A `Thread` is an explicit JVM call stack (a stack of `Frame`s). The `Interpreter` runs a
+   bounded number of instructions against the top frame and returns, so threads can eventually
+   be scheduled cooperatively (green threads); method calls and class `<clinit>`s push frames
+   instead of recursing in C++.
+4. `main` runs the window event/render loop until the user closes the window, then asks the VM
+   to stop and joins the background thread.
 
 ```mermaid
 flowchart LR
@@ -100,8 +107,10 @@ flowchart LR
     B --> C[ClassLoader]
     B --> D[Heap]
     B --> E[Interpreter]
+    B --> H[Thread]
     C -->|parses| F[ClassFile]
-    E -->|builds| G[Frame]
+    H -->|stack of| G[Frame]
+    E -->|runs| H
     E -->|allocates via| D
 ```
 
@@ -109,7 +118,8 @@ Core components:
 
 - **ClassLoader / ClassFile** — resolve and parse `.class` files off the classpath.
 - **Class / Method / Field** — the runtime model, including lazy constant-pool resolution.
-- **Interpreter / Frame** — the bytecode execution engine and per-call activation records.
+- **Interpreter / Thread / Frame** — the bytecode engine, a green thread's explicit call stack,
+  and per-call activation records.
 - **Heap / Object** — object and array allocation; `Object` is a tagged union of instance,
   primitive-array, instance-array, and `java.lang.Class`-mirror data.
 
@@ -120,7 +130,7 @@ source/
   main.cpp            # entry point
   class_loader/       # .class parsing + classpath class loading
   platform/           # SDL3 window + 2D renderer wrapper (Display)
-  runtime/            # VM, interpreter, classes, heap, objects, frames
+  runtime/            # VM, interpreter, threads, classes, heap, objects, frames
   utils/              # big-endian binary reader
 tests/                # GoogleTest unit tests
 resources/            # vendored J2ME stdlib + MIDlet data
@@ -132,6 +142,9 @@ third_party/gtest/    # GoogleTest (submodule)
 
 ### Known gaps & WIP
 
+- Green threads are a work in progress: the interpreter is now stackless (it runs an instruction
+  budget against a thread's explicit frame stack), but there is no scheduler yet — the VM drives
+  a single main thread, with no `java.lang.Thread` support, cooperative yielding, or blocking.
 - Many opcodes are still unimplemented; the interpreter throws on anything it doesn't know,
   and JVM-level errors (null-pointer, divide-by-zero, array-store, out-of-bounds) surface as
   C++ exceptions rather than Java ones.
@@ -165,6 +178,7 @@ third_party/gtest/    # GoogleTest (submodule)
 
 ### Next steps
 
+- Build a cooperative scheduler over multiple green threads and wire up `java.lang.Thread`.
 - Introduce real exception objects and exception-handler-table dispatch.
 - Implement `invokeinterface`, `ACC_SUPER` super-calls, and `checkcast`/`instanceof` checks.
 - Parse `Float`/`Double` constants and widen overall opcode coverage.

@@ -6,6 +6,7 @@
 
 class Class;
 class Frame;
+class Thread;
 class VM;
 struct Method;
 
@@ -13,15 +14,12 @@ class Interpreter {
 public:
     explicit Interpreter(VM& vm) noexcept : vm_(vm) {}
 
-    std::optional<Value> execute(const Method& method,
-                                 std::span<const Value> args = {});
+    void run(Thread& thread, size_t num_instructions);
 
     Interpreter(const Interpreter&) = delete;
     Interpreter& operator=(const Interpreter&) = delete;
 private:
-    void invoke(const Method& method, Frame& frame);
-
-    std::optional<Value> run(Frame& frame);
+    void invoke(Thread& thread, const Method& method);
 
     VM& vm_;
 };

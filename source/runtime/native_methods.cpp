@@ -13,23 +13,20 @@
 namespace {
 
 void com_kostu96_gjvm_ResourceInputStream_init(VM& vm, Frame& frame) {
-    auto* name = std::get<Object*>(frame.pop_stack());
-    auto& name_instance = std::get<InstanceData>(name->data);
-    auto* obj = std::get<Object*>(frame.pop_stack());
-    auto& obj_instance = std::get<InstanceData>(obj->data);
+    auto& name_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
     auto& name_native = std::get<StringNativeData>(name_instance.native_payload);
+    auto& stream_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
 
     ResourceInputStreamNativeData native_data{
         .buffer = vm.class_loader().load_resource(name_native.value),
         .position = 0
     };
-    obj_instance.native_payload = native_data;
+    stream_instance.native_payload = native_data;
 }
 
 void com_kostu96_gjvm_ResourceInputStream_read(VM& vm, Frame& frame) {
-    auto* obj = std::get<Object*>(frame.pop_stack());
-    auto& obj_instance = std::get<InstanceData>(obj->data);
-    auto& stream_native = std::get<ResourceInputStreamNativeData>(obj_instance.native_payload);
+    auto& stream_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& stream_native = std::get<ResourceInputStreamNativeData>(stream_instance.native_payload);
 
     frame.push_stack(static_cast<int32_t>(stream_native.buffer[stream_native.position++]));
 }
@@ -42,54 +39,35 @@ void java_lang_Class_getName(VM& vm, Frame& frame) {
     frame.push_stack(str_obj);
 }
 
-//void java_lang_Class_newInstance(VM& vm, Frame& frame) {
-//    auto* cls_obj = std::get<Object*>(frame.pop_stack());
-//    if (cls_obj == nullptr) {
-//        // In a complete VM this would raise NullPointerException.
-//        throw std::runtime_error("newInstance: class is null");
-//    }
-//    auto& mirror = std::get<ClassMirrorData>(cls_obj->data);
-//    Class* cls = mirror.mirrored;
-//    Object* instance = vm.heap().new_instance(*cls);
-//    cls->find_method("<init>", "()V");
-//    Value val = instance;
-//    vm.interpreter().execute(*cls, *cls->find_method("<init>", "()V"), std::span{ &val, 1 });
-//
-//    frame.push_stack(instance);
-//}
-
 void java_lang_Object_getClass(VM& vm, Frame& frame) {
-    auto* obj = std::get<Object*>(frame.pop_stack());
+    auto& instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
 
-    auto& instance = std::get<InstanceData>(obj->data);
     auto* class_obj = vm.heap().class_object_for(instance.type);
     frame.push_stack(class_obj);
 }
 
 void java_lang_String_charAt(VM& vm, Frame& frame) {
     auto index = std::get<int32_t>(frame.pop_stack());
-    auto* str_obj = std::get<Object*>(frame.pop_stack());
-    auto& str_instance = std::get<InstanceData>(str_obj->data);
-    auto* chars_obj = std::get<Object*>(str_instance.fields[0]);
-    auto& char_array = std::get<PrimitiveArrayData>(chars_obj->data);
-    if (index < 0 || index >= char_array.length()) {
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& str_native = std::get<StringNativeData>(str_instance.native_payload);
+    
+    if (index < 0 || index >= str_native.value.size()) {
         // In a complete VM this would raise StringIndexOutOfBoundsException.
         throw std::runtime_error("charAt: index out of bounds");
     }
-    auto char_value = char_array.get(index);
-    frame.push_stack(char_value);
+    auto ch = str_native.value[index];
+    frame.push_stack(static_cast<int32_t>(ch));
 }
 
 void java_lang_String_indexOf(VM& vm, Frame& frame) {
     auto index = std::get<int32_t>(frame.pop_stack());
     auto char_value = std::get<int32_t>(frame.pop_stack());
-    auto* str_obj = std::get<Object*>(frame.pop_stack());
-    auto& str_instance = std::get<InstanceData>(str_obj->data);
-    auto* chars_obj = std::get<Object*>(str_instance.fields[0]);
-    auto& char_array = std::get<PrimitiveArrayData>(chars_obj->data);
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& str_native = std::get<StringNativeData>(str_instance.native_payload);
+
     int32_t result_index = -1;
-    for (int32_t i = index; i < char_array.length(); ++i) {
-        if (std::get<int32_t>(char_array.get(i)) == char_value) {
+    for (int32_t i = index; i < str_native.value.size(); ++i) {
+        if (static_cast<int32_t>(str_native.value[i]) == char_value) {
             result_index = i;
             break;
         }
@@ -99,13 +77,12 @@ void java_lang_String_indexOf(VM& vm, Frame& frame) {
 
 void java_lang_String_lastIndexOf(VM& vm, Frame& frame) {
     auto char_value = std::get<int32_t>(frame.pop_stack());
-    auto* str_obj = std::get<Object*>(frame.pop_stack());
-    auto& str_instance = std::get<InstanceData>(str_obj->data);
-    auto* chars_obj = std::get<Object*>(str_instance.fields[0]);
-    auto& char_array = std::get<PrimitiveArrayData>(chars_obj->data);
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& str_native = std::get<StringNativeData>(str_instance.native_payload);
+
     int32_t result_index = -1;
-    for (int32_t i = 0; i < char_array.length(); ++i) {
-        if (std::get<int32_t>(char_array.get(i)) == char_value) {
+    for (int32_t i = 0; i < str_native.value.size(); ++i) {
+        if (static_cast<int32_t>(str_native.value[i]) == char_value) {
             result_index = i;
         }
     }

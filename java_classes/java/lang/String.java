@@ -24,8 +24,6 @@ public final class String {
 
     private native void init();
 
-    private char[] value;
-    private int offset;
     private int count;
     private int hash;
 }

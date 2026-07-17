@@ -47,6 +47,8 @@ set(APP_LIB_SOURCES
     "source/runtime/runtime_constant_pool_entry.hpp"
     "source/runtime/object.hpp"
     "source/runtime/object.cpp"
+    "source/runtime/thread.cpp"
+    "source/runtime/thread.hpp"
     "source/runtime/value.hpp"
     "source/runtime/vm.hpp"
     "source/runtime/vm.cpp"

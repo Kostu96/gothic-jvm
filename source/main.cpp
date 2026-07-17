@@ -17,6 +17,7 @@ int main(int argc, char** argv) {
         Display display("gothic-jvm", 240, 320, 2);
 
         VM vm;
+        vm.set_main_class(main_class);
         vm.set_display(&display);
 
         if (argc >= 3) {
@@ -34,7 +35,7 @@ int main(int argc, char** argv) {
         // painting the current Canvas).
         std::thread jvm_thread([&] {
             try {
-                vm.run(main_class);
+                vm.run();
             }
             catch (const VmStopRequested&) {
                 // Window closed while the MIDlet was running; unwind quietly.

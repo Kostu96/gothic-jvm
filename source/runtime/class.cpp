@@ -134,11 +134,18 @@ Class::Class(const char* filename, ClassLoader& class_loader) :
     methods_.reserve(method_infos.size());
     for (auto& method_info : method_infos) {
         Method method{ .owner = *this };
-        method.is_static = (method_info.access_flags & ACC_STATIC) != 0;
-        method.is_native = (method_info.access_flags & ACC_NATIVE) != 0;
         method.name = class_file_->constant_pool_utf8(method_info.name_index);
         method.descriptor = class_file_->constant_pool_utf8(method_info.descriptor_index);
         method.arg_slot_widths = compute_arg_slot_widths(method.descriptor, method.is_static);
+        method.is_static = (method_info.access_flags & ACC_STATIC) != 0;
+        method.is_native = (method_info.access_flags & ACC_NATIVE) != 0;
+        method.is_class_initializer =
+            (method.name == "<clinit>" && method.descriptor == "()V" && method.is_static);
+
+        if (method.is_class_initializer && is_interface_) {
+            throw std::runtime_error("Class: interface " + std::string(this_name_) +
+                " has a class initializer <clinit>, which is not supported");
+        }
 
         if (method.is_native) {
             method.native_callback =
@@ -166,6 +173,30 @@ Class::Class(std::string name, Class* component_type) :
     is_interface_(false),
     this_name_(std::move(name)),
     component_type_(component_type) {}
+
+void Class::ensure_initialized(Thread& thread) {
+    switch (init_state_) {
+    case InitState::Loaded: {
+        init_state_ = InitState::Initializing;
+        if (const Method* clinit = find_method("<clinit>", "()V")) {
+            thread.push_frame(*clinit, {});
+        }
+        else {
+            init_state_ = InitState::Initialized;
+        }
+
+        if (super_) {
+            super_->ensure_initialized(thread);
+        }
+    } return;
+    case InitState::Initializing:
+    case InitState::Initialized:
+        return;
+    case InitState::Failed:
+        throw std::runtime_error(
+            "Class: class '" + std::string(this_name_) + "' previously failed initialization");
+    }
+}
 
 Value Class::resolve_constant(uint16_t index, ClassLoader& class_loader, Heap& heap) {
     return std::visit([&, this](auto&& info) -> Value {

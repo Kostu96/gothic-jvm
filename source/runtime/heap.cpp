@@ -50,26 +50,14 @@ Object* Heap::new_interned_string(std::string_view str) {
     Object* string_obj = new_instance(*string_class_);
     string_objects_.emplace(value, string_obj);
 
-    // Backing char[] for the String. The constant is stored as (modified) UTF-8
-    Object* chars =
-        new_primitive_array(PrimitiveArrayData::ElementType::Char, static_cast<int32_t>(str.size()));
-    auto& char_array = std::get<PrimitiveArrayData>(chars->data);
-    for (size_t i = 0; i < str.size(); ++i) {
-        char_array.set(static_cast<int32_t>(i),
-            static_cast<int32_t>(static_cast<unsigned char>(str[i])));
-    }
-
-    // Populate the String fields directly instead of running <init>([C)V
     auto& instance = std::get<InstanceData>(string_obj->data);
     const auto set_field = [&](std::string_view name, std::string_view descriptor, Value field_value) {
         if (auto field = string_class_->find_field(name, descriptor)) {
             instance.fields[field->slot] = field_value;
         }
     };
-    set_field("value", "[C", chars);
-    set_field("offset", "I", static_cast<int32_t>(0));
     set_field("count", "I", static_cast<int32_t>(str.size()));
-    set_field("hash", "I", static_cast<int32_t>(0));
+    set_field("hash", "I", static_cast<int32_t>(0)); // TODO(Kostu): hash is not set properly
 
     instance.native_payload = StringNativeData{ value };
 

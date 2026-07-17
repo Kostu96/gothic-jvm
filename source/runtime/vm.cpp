@@ -10,53 +10,56 @@ VM::VM() :
     interpreter_(*this)
 {
     class_loader_.add_classpath_entry(std::filesystem::current_path() / "java_classes");
-    class_loader_.load("java/lang/Class");
+}
+
+void VM::run() {
+    enum class BootsrapState {
+        Boot,
+        Phase1,
+        Phase2,
+        Phase3,
+        Phase4
+    };
+    BootsrapState bootstrap_state = BootsrapState::Boot;
+    
     Class& string_class = class_loader_.load("java/lang/String");
     heap_.set_string_class(string_class);
-    initialize_class(string_class);
-}
+    Class& main_class = class_loader_.load(main_class_name_);
+    Value main_obj;
 
-void VM::run(std::string_view main_class) {
-    Class& main = class_loader_.load(main_class);
-    initialize_class(main);
-
-    Object* main_obj = heap_.new_instance(main);
-    const auto init = main.find_method("<init>", "()V");
-    Value main_obj_value = main_obj;
-    interpreter_.execute(*init, std::span{ &main_obj_value, 1 });
-
-    const auto start_app = main.find_method("startApp", "()V");
-    interpreter_.execute(*start_app, std::span{ &main_obj_value, 1 });
-}
-
-void VM::initialize_class(Class& cls) {
-    switch (cls.init_state()) {
-    case Class::InitState::Initialized:
-    case Class::InitState::Initializing:
-        return;
-    case Class::InitState::Failed:
-        throw std::runtime_error(
-            "VM: class '" + std::string(cls.this_name()) + "' previously failed initialization");
-    case Class::InitState::Loaded:
-        break;
-    }
-
-    std::println("Initializing class: {}", cls.this_name());
-    cls.set_init_state(Class::InitState::Initializing);
-
-    try {
-        if (const std::string_view super = cls.super_name(); !super.empty()) {
-            initialize_class(class_loader().load(super));
+    while (true) {
+        switch (bootstrap_state) {
+            using enum BootsrapState;
+        case Boot: {
+            bootstrap_state = Phase1;
+            string_class.ensure_initialized(main_thread_);
+        } break;
+        case Phase1: {
+            if (main_thread_.is_terminated()) {
+                bootstrap_state = Phase2;
+                main_class.ensure_initialized(main_thread_);
+            }
+        } break;
+        case Phase2: {
+            if (main_thread_.is_terminated()) {
+                bootstrap_state = Phase3;
+                main_obj = heap_.new_instance(main_class);
+                main_thread_.push_frame(*main_class.find_method("<init>", "()V"), std::span{ &main_obj, 1 });
+            }
+        } break;
+        case Phase3: {
+            if (main_thread_.is_terminated()) {
+                bootstrap_state = Phase4;
+                main_thread_.push_frame(*main_class.find_method("startApp", "()V"), std::span{ &main_obj, 1 });
+            }
+        } break;
+        case Phase4: {
+            if (main_thread_.is_terminated()) {
+                return;
+            }
+        } break;
         }
 
-        if (const Method* clinit = cls.find_method("<clinit>", "()V")) {
-            interpreter_.execute(*clinit);
-        }
+        interpreter_.run(main_thread_, 500);
     }
-    catch (...) {
-        cls.set_init_state(Class::InitState::Failed);
-        throw;
-    }
-
-    cls.set_init_state(Class::InitState::Initialized);
 }

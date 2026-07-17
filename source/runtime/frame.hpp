@@ -11,6 +11,8 @@ class Frame {
 public:
     Frame(Class& owner, const Method& method);
 
+    Frame(Frame&&) = default;
+
     Class& owner() const noexcept { return owner_; }
     const Method& method() const noexcept { return method_; }
 
@@ -20,7 +22,8 @@ public:
     std::vector<Value>& operand_stack() noexcept { return operand_stack_; }
     const std::vector<Value>& operand_stack() const noexcept { return operand_stack_; }
 
-    size_t get_pc() const noexcept { return pc_; }
+    size_t pc() const noexcept { return pc_; }
+    void set_pc(size_t pc) noexcept { pc_ = pc; }
     void branch(size_t offset) noexcept { pc_ += offset; }
 
     std::uint8_t pop_code_u8();

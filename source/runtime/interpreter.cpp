@@ -35,62 +35,18 @@ PrimitiveArrayData::ElementType primitive_array_element_type(std::string_view pr
 
 }
 
-std::optional<Value> Interpreter::execute(const Method& method,
-                                          std::span<const Value> args) {
-    std::println("{:>{}}Interpreter: executing {}.{}{} with {} argument(s)",
-        "", indent, method.owner.this_name(), method.name, method.descriptor, args.size());
-
-    Frame frame(method.owner, method);
-
-    auto& locals = frame.locals();
-
-    // Each argument maps onto locals using its precomputed slot width (long/double
-    // occupy two slots); arg_slot_widths already includes the leading `this` slot.
-    size_t local_index = 0;
-    for (size_t i = 0; i < args.size() && i < method.arg_slot_widths.size(); ++i) {
-        if (local_index < locals.size()) {
-            locals[local_index] = args[i];
-        }
-        local_index += method.arg_slot_widths[i];
-    }
-
-    return run(frame);
-}
-
-void Interpreter::invoke(const Method& method, Frame& frame) {
-    if (method.is_native) {
-        std::println(
-            "{:>{}}Interpreter: executing native {}.{}{}", "", indent, method.owner.this_name(), method.name, method.descriptor);
-        if (method.native_callback) {
-            (*(method.native_callback))(vm_, frame);
-        }
-        else {
-            throw std::runtime_error(std::format(
-                "Failed to call native: {}.{}{}", method.owner.this_name(), method.name, method.descriptor));
-        }
-    }
-    else {
-        std::vector<Value> args(method.arg_slot_widths.size());
-        for (size_t i = method.arg_slot_widths.size(); i > 0; --i) {
-            args[i - 1] = frame.pop_stack();
-        }
-        auto ret = execute(method, args);
-        if (ret.has_value()) {
-            frame.push_stack(*ret);
-        }
-    }
-}
-
 // TODO(Kostu): move this to utils
 template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
-std::optional<Value> Interpreter::run(Frame& frame) {
-    indent += 2;
-    while (frame.get_pc() < frame.method().code.size()) {
+void Interpreter::run(Thread& thread, size_t num_instructions) {
+    while (num_instructions-- > 0 && !thread.is_terminated()) {
         if (vm_.stop_requested()) {
             throw VmStopRequested{};
         }
+        auto& frame = thread.current_frame();
+        size_t last_pc = frame.pc();
+
         std::print("{:>{}}Stack: [", "", indent);
         for (size_t i = 0; i < frame.operand_stack().size(); ++i) {
             if (i > 0) {
@@ -107,7 +63,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             }, val);
         }
         std::println("]");
-        std::print("{:>{}}{:04X}: ", "", indent, frame.get_pc());
+        std::print("{:>{}}{:04X}: ", "", indent, frame.pc());
         const auto opcode = frame.pop_code_u8();
 
         switch (opcode) {
@@ -645,26 +601,33 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             if (frame.operand_stack().size() != 1) {
                 throw std::runtime_error("ireturn: operand stack should have exactly one value");
             }
-            indent -= 2;
-            return frame.pop_stack();
-        }
+            //indent -= 2;
+            Value ret = frame.pop_stack();
+            thread.pop_frame();
+            thread.current_frame().push_stack(ret);
+        } break;
 
         case op_areturn: {
             std::println("{:{}}", "areturn", OPCODE_PRINT_PAD_WIDTH);
             if (frame.operand_stack().size() != 1) {
                 throw std::runtime_error("areturn: operand stack should have exactly one value");
             }
-            indent -= 2;
-            return frame.pop_stack();
-        }
+            //indent -= 2;
+            Value ret = frame.pop_stack();
+            thread.pop_frame();
+            thread.current_frame().push_stack(ret);
+        } break;
         case op_return: {
             std::println("{:{}}", "return", OPCODE_PRINT_PAD_WIDTH);
             if (!frame.operand_stack().empty()) {
                 throw std::runtime_error("return: operand stack should be empty");
             }
-            indent -= 2;
-            return std::nullopt;
-        }
+            //indent -= 2;
+            if (frame.method().is_class_initializer) {
+                frame.method().owner.set_initialized();
+            }
+            thread.pop_frame();
+        } break;
         case op_getstatic: {
             const auto index = frame.pop_code_u16();
             std::println("{:{}} {:04X}", "getstatic", OPCODE_PRINT_PAD_WIDTH, index);
@@ -676,8 +639,13 @@ std::optional<Value> Interpreter::run(Frame& frame) {
                     field.owner.this_name(), field.name, field.descriptor));
             }
 
-            vm_.initialize_class(field.owner);
-            frame.push_stack(field.value);
+            if (field.owner.needs_initialization()) {
+                frame.set_pc(last_pc);
+                field.owner.ensure_initialized(thread);
+            }
+            else {
+                frame.push_stack(field.value);
+            }
         } break;
         case op_putstatic: {
             const auto index = frame.pop_code_u16();
@@ -690,8 +658,13 @@ std::optional<Value> Interpreter::run(Frame& frame) {
                     field.owner.this_name(), field.name, field.descriptor));
             }
 
-            vm_.initialize_class(field.owner);
-            field.value = frame.pop_stack();
+            if (field.owner.needs_initialization()) {
+                frame.set_pc(last_pc);
+                field.owner.ensure_initialized(thread);
+            }
+            else {
+                field.value = frame.pop_stack();
+            }
         } break;
         case op_getfield: {
             const auto index = frame.pop_code_u16();
@@ -765,7 +738,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
                     resolved_method.owner.this_name(), resolved_method.name, resolved_method.descriptor));
             }
 
-            invoke(*method, frame);
+            invoke(thread, *method);
         } break;
         case op_invokespecial: {
             const auto index = frame.pop_code_u16();
@@ -779,7 +752,7 @@ std::optional<Value> Interpreter::run(Frame& frame) {
                 throw std::runtime_error("invokespecial: ACC_SUPER semantics not implemented yet");
             }
 
-            invoke(method, frame);
+            invoke(thread, method);
         } break;
         case op_invokestatic: {
             const auto index = frame.pop_code_u16();
@@ -792,8 +765,13 @@ std::optional<Value> Interpreter::run(Frame& frame) {
                     method.owner.this_name(), method.name, method.descriptor));
             }
 
-            vm_.initialize_class(method.owner);
-            invoke(method, frame);
+            if (method.owner.needs_initialization()) {
+                frame.set_pc(last_pc);
+                method.owner.ensure_initialized(thread);
+            }
+            else {
+                invoke(thread, method);
+            }
         } break;
 
         case op_new: {
@@ -801,10 +779,14 @@ std::optional<Value> Interpreter::run(Frame& frame) {
             std::println("{:{}} {:04X}", "new", OPCODE_PRINT_PAD_WIDTH, index);
 
             Class& target = frame.owner().resolve_class(index, vm_.class_loader());
-            vm_.initialize_class(target);
-
-            Object* instance = vm_.heap().new_instance(target);
-            frame.push_stack(instance);
+            if (target.needs_initialization()) {
+                frame.set_pc(last_pc);
+                target.ensure_initialized(thread);
+            }
+            else {
+                Object* instance = vm_.heap().new_instance(target);
+                frame.push_stack(instance);
+            }
         } break;
         case op_newarray: {
             auto type = frame.pop_code_u8();
@@ -914,12 +896,29 @@ std::optional<Value> Interpreter::run(Frame& frame) {
         default:
             throw std::runtime_error(std::format(
                 "Interpreter: unimplemented opcode 0x{:02X} at pc={} in {}.{}{}",
-                opcode, frame.get_pc() - 1,
+                opcode, last_pc,
                 frame.owner().this_name(), frame.method().name, frame.method().descriptor));
         }
     }
+}
 
-    throw std::runtime_error(std::format(
-        "Interpreter: fell off the end of {}.{}{}",
-        frame.owner().this_name(), frame.method().name, frame.method().descriptor));
+void Interpreter::invoke(Thread& thread, const Method& method) {
+    if (method.is_native) {
+        std::println(
+            "{:>{}}Interpreter: executing native {}.{}{}", "", indent, method.owner.this_name(), method.name, method.descriptor);
+        if (method.native_callback) {
+            (*(method.native_callback))(vm_, thread.current_frame());
+        }
+        else {
+            throw std::runtime_error(std::format(
+                "Failed to call native: {}.{}{}", method.owner.this_name(), method.name, method.descriptor));
+        }
+    }
+    else {
+        std::vector<Value> args(method.arg_slot_widths.size());
+        for (size_t i = method.arg_slot_widths.size(); i > 0; --i) {
+            args[i - 1] = thread.current_frame().pop_stack();
+        }
+        thread.push_frame(method, args);
+    }
 }

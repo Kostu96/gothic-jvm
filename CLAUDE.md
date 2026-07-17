@@ -60,8 +60,8 @@ parsing or interpreter test coverage anymore (the former `test_class_file.cpp` w
 At startup the classpath is assembled from the **current working directory**, not from
 `resources/`:
 
-1. `VM` ctor adds `<cwd>/java_classes` and eagerly loads `java/lang/Class` and
-   `java/lang/String` (`java/lang/Object` is pulled in transitively as their superclass).
+1. `VM` ctor adds `<cwd>/java_classes` only (it no longer eagerly loads any class; loading
+   and initialization are deferred to `VM::run`'s bootstrap).
 2. `main.cpp` adds either the CLI-provided classpath entries, or (with no extra args)
    `<cwd>/gothic3thebeginning`.
 
@@ -99,11 +99,12 @@ source/
   platform/
     display.{hpp,cpp}           # Display: owns SDL_Window + SDL_Renderer; process_events/clear/present; width/height
   runtime/                      # execution model
-    vm.{hpp,cpp}                # VM: owns NativeMethods/ClassLoader/Heap/Interpreter; boot Class+String; run+init MIDlet
-    class.{hpp,cpp}             # Class/Method/Field; constant-pool resolution; binds ACC_NATIVE methods to callbacks
+    vm.{hpp,cpp}                # VM: owns NativeMethods/ClassLoader/Heap/Interpreter + the main Thread; bootstrap state machine
+    thread.{hpp,cpp}            # Thread: a green thread = an explicit call stack (vector<Frame>); push/pop/current frame
+    class.{hpp,cpp}             # Class/Method/Field; constant-pool resolution; ensure_initialized; binds ACC_NATIVE callbacks
     native_methods.{hpp,cpp}    # NativeMethods: "<class>.<name><descriptor>" -> C++ callback registry
-    interpreter.{hpp,cpp}       # bytecode dispatch loop (execute/invoke/run) -> optional<Value>
-    frame.{hpp,cpp}             # Frame: locals, operand stack, pc, code readers, branch()
+    interpreter.{hpp,cpp}       # budgeted bytecode dispatch loop: run(Thread&, num_instructions) / invoke(Thread&, Method)
+    frame.{hpp,cpp}             # Frame: locals, operand stack, pc (pc()/set_pc()/branch()), code readers; movable
     heap.{hpp,cpp}              # Heap: instances/arrays + interned Strings + canonical Class mirrors (owns unique_ptrs)
     object.{hpp,cpp}            # Object = variant<InstanceData, PrimitiveArrayData, InstanceArrayData, ClassMirrorData>
     opcodes.hpp                 # op_* bytecode opcode constants
@@ -123,38 +124,50 @@ build/                          # generated VS solution/projects + <cwd> copies 
 
 ## Architecture & flow
 
+> **Execution model (WIP): green threads on an explicit frame stack.** The interpreter is being
+> converted from a C++-recursive design to a *stackless, budgeted* one so multiple Java threads
+> can eventually be scheduled cooperatively. Each `Thread` owns its own call stack
+> (`std::vector<Frame>`); `Interpreter::run` executes a bounded number of instructions against
+> the top frame and returns, so a scheduler could round-robin threads by quantum. There is **no
+> scheduler yet** — the `VM` drives a single `main_thread_`.
+
 1. `main.cpp` (`args <main_class> [<class_path_entry>...]`) opens the SDL3 `Display`
-   (240x320 logical size, scale 2 -> 480x640 window + renderer), default-constructs a `VM`, connects the two via
-   `vm.set_display(&display)`, and configures the classpath (default main class `HG`; with no
-   extra args the classpath defaults to `<cwd>/gothic3thebeginning`, otherwise each extra arg
-   is added as an entry). It then launches `vm.run(main_class)` on a **background
-   `std::thread`** (SDL must own the thread that created the window/pumps events, and a
-   MIDlet's `startApp()` may never return) and runs the window event/render loop on the main
-   thread (`process_events` -> `clear` -> `present`). When the user closes the window it calls
-   `vm.request_stop()` and joins the JVM thread. The JVM thread swallows `VmStopRequested`
-   (clean shutdown) and prints other exceptions to stderr.
-2. `VM` ctor wires its owned `NativeMethods` into the `ClassLoader`, adds
-   `<cwd>/java_classes` to the classpath, eagerly loads `java/lang/Class` then
-   `java/lang/String` (`java/lang/Object` loads transitively), registers the String class
-   with the heap (`Heap::set_string_class`) so literals can be interned, and initializes
-   `String`.
-3. `VM::run(main_class)` -> `load` main class -> `initialize_class`, then
-   `new_instance(main)`, invokes `<init>()V`, then invokes the MIDlet lifecycle entry
-   `startApp()V` (both via `Interpreter::execute` with the receiver passed as the sole
-   argument).
-4. `Interpreter` holds a `VM&` (ctor `Interpreter(VM&)`). `execute(method, args = {})`
-   takes only the `Method` (the owner comes from `method.owner`), builds a
-   `Frame(method.owner, method)`, copies args into locals using `arg_slot_widths`, then
-   `run()` dispatches opcodes in a `switch`, returning `optional<Value>`. The private
-   `invoke(method, frame)` helper centralizes the native-vs-bytecode call path: native
-   methods call the `Method::native_callback` (a `const NativeMethods::Callback*`) with the
-   live frame, throwing if it is null; bytecode methods pop `num_args` args and re-enter
-   `execute`.
-5. `initialize_class` walks the superclass chain first (recursively) and then runs
-   `<clinit>()V` if present, tracking `Class::InitState` (Loaded/Initializing/Initialized/Failed).
+   (240x320 logical, scale 2 -> 480x640 window + renderer), default-constructs a `VM`, calls
+   `vm.set_main_class(...)` and `vm.set_display(&display)`, and configures the classpath
+   (default main class `HG`; with no extra args the classpath defaults to
+   `<cwd>/gothic3thebeginning`, otherwise each extra arg is added as an entry). It then runs
+   `vm.run()` on a **background `std::thread`** (SDL must own the thread that created the
+   window/pumps events, and a MIDlet's `startApp()` may never return) and spins the window
+   event/render loop on the main thread (`process_events` -> `clear` -> `present`). On window
+   close it calls `vm.request_stop()` and joins the JVM thread, which swallows
+   `VmStopRequested` (clean shutdown) and prints other exceptions to stderr.
+2. `VM` ctor only wires its owned `NativeMethods` into the `ClassLoader` and adds
+   `<cwd>/java_classes` to the classpath. It does **not** eagerly load or initialize any class.
+3. `VM::run()` is a **bootstrap state machine** driving `main_thread_`. It loads
+   `java/lang/String` (registering it with the heap via `Heap::set_string_class` so literals can
+   be interned) and the main class, then loops `interpreter_.run(main_thread_, 500)` while
+   advancing through phases, each guarded by `Thread::is_terminated()` (the frame stack drained
+   empty) so the previous phase's work finishes before the next is scheduled: `Boot` initializes
+   `String`; `Phase1` initializes the main class; `Phase2` `new_instance`s the MIDlet and pushes
+   its `<init>()V`; `Phase3` pushes `startApp()V`; `Phase4` returns once `startApp` unwinds.
+   Class init and lifecycle entries are scheduled as pushed frames, not synchronous C++ calls.
+4. `Interpreter` holds a `VM&` (ctor `Interpreter(VM&)`). `run(Thread& thread, size_t
+   num_instructions)` executes up to `num_instructions` opcodes against `thread.current_frame()`
+   in a `switch`, checking `vm.stop_requested()` each step and stopping early if the thread
+   terminates. Method calls do **not** recurse in C++: the private
+   `invoke(Thread&, const Method&)` either runs a native (calls `Method::native_callback` with
+   `thread.current_frame()`, throwing if null) or, for bytecode, pops `arg_slot_widths.size()`
+   operand-stack entries and `Thread::push_frame`es a new `Frame`. Returns (`ireturn`/`areturn`/
+   `return`) `pop_frame` and push any result onto the caller's operand stack.
+5. Class initialization is stackless and lazy (see [Class initialization](#class-initialization)):
+   the init-triggering opcodes (`getstatic`/`putstatic`/`invokestatic`/`new`) check
+   `Class::needs_initialization()`, and if so rewind the frame's pc to the current instruction
+   and call `Class::ensure_initialized(thread)`, which pushes the `<clinit>` frame(s)
+   super-class-first and returns to the loop; the instruction re-executes once the class is
+   initialized.
 6. `ClassLoader::load` checks a cache, routes names starting with `[` to `load_array`,
-   otherwise resolves `binary/name` -> `<entry>/binary/name.class` across classpath
-   entries and constructs a `Class` (which recursively loads its super + interfaces).
+   otherwise resolves `binary/name` -> `<entry>/binary/name.class` across classpath entries and
+   constructs a `Class` (which recursively loads its super + interfaces).
 
 ### Key types
 - **Value** (`value.hpp`): JVM slot = `variant<monostate, int32_t, int64_t, float, double, Object*>`.
@@ -188,17 +201,23 @@ build/                          # generated VS solution/projects + <cwd> copies 
   `resolve_constant(index, class_loader, heap)` (ints/longs + `String`s interned via
   `Heap::new_interned_string`), plus predicates/accessors `kind()`, `is_interface()`,
   `treat_super_specially()`, `component_type()`, `this_name()`, `super()`/`super_name()`,
-  `instance_field_count()`, `init_state()`/`set_init_state()`. (`create_string`,
-  `resolve_class_name`, `resolve_method_ref`, and `is_primitive()` no longer exist — test for
-  primitive classes with `kind() == Kind::Primitive`; String materialization now lives on the
-  heap.)
-- **Method**: `owner` (Class&), `is_static`, `is_native`, name, descriptor, `num_args` (argument
-  count including `this` for instance methods), `arg_slot_widths` (per-argument local-slot widths
-  incl. the leading `this` slot; `long`/`double` = 2, everything else = 1; computed once at parse
-  time), `max_stack`/`max_locals`, `code` span, `exception_table` span, `native_callback`
-  (`const NativeMethods::Callback*`, i.e. a pointer into the `NativeMethods` registry; `nullptr`
-  when the method is not native or has no registered binding). `Interpreter::invoke(method, frame)`
-  pops `num_args` operand-stack entries; `execute` lays arguments into locals using `arg_slot_widths`.
+  `instance_field_count()`. Initialization API: `needs_initialization()` (true only when
+  `init_state_ == Loaded`), `ensure_initialized(Thread&)` (schedules `<clinit>` frames — see
+  [Class initialization](#class-initialization)), and `set_initialized()` (flips to
+  `Initialized`; called from `op_return` when a `<clinit>` frame unwinds). `InitState` is now
+  effectively private — there is no general `init_state()`/`set_init_state()` accessor.
+  (`create_string`, `resolve_class_name`, `resolve_method_ref`, and `is_primitive()` no longer
+  exist — test for primitive classes with `kind() == Kind::Primitive`; String materialization
+  now lives on the heap.)
+- **Method**: `owner` (Class&), name, descriptor, `arg_slot_widths` (per-argument local-slot
+  widths incl. the leading `this` slot; `long`/`double` = 2, everything else = 1; computed once
+  at parse time — its `.size()` is the operand count `invoke` pops), `max_stack`/`max_locals`,
+  `is_static`, `is_native`, `is_class_initializer` (name `<clinit>`, descriptor `()V`, static;
+  used by `op_return` to mark the owner `Initialized`), `code` span, `exception_table` span,
+  `native_callback` (`const NativeMethods::Callback*` into the `NativeMethods` registry;
+  `nullptr` when not native or unbound). `Interpreter::invoke(thread, method)` pops
+  `arg_slot_widths.size()` operand-stack entries and `Thread::push_frame` lays them into locals.
+  (There is no longer a `num_args` field.)
 - **Field**: `owner`, `is_static`, name, descriptor, `Value value` (static storage), `slot` (instance index).
 - **Heap**: owns all `Object`s via `unique_ptr`; `new_instance`, `new_primitive_array`,
   `new_instance_array`, `new_interned_string(str)` (materializes a `java/lang/String`; see
@@ -207,9 +226,18 @@ build/                          # generated VS solution/projects + <cwd> copies 
   class registered via `set_string_class` before any string is interned. `new_interned_string`
   now **deduplicates** via the `string_objects_` map (keyed by the raw string), returning the
   cached `String` for a repeated literal instead of allocating a fresh one.
-- **Frame**: `owner()`/`method()`, `locals()`, `operand_stack()`, `get_pc()`, `branch(offset)`,
-  `pop_code_u8/u16`, `push_stack`/`pop_stack`/`peek_stack(index = 0)` (peek is depth-indexed
-  from the top of the stack). (No `set_pc`; jumps go through `branch`.)
+- **Frame** (movable so it can live in `Thread::frames_`): `owner()`/`method()`, `locals()`,
+  `operand_stack()`, `pc()`/`set_pc(pc)` (jumps use `branch(offset)`; `set_pc` rewinds a whole
+  instruction for lazy class init), `pop_code_u8/u16`, `push_stack`/`pop_stack`/
+  `peek_stack(index = 0)` (peek is depth-indexed from the top). Ctor sizes `locals` to
+  `max_locals` and reserves `max_stack`.
+- **Thread** (`thread.{hpp,cpp}`): a green thread = an explicit JVM call stack. Owns
+  `std::vector<Frame> frames_`; `current_frame()` (top), `push_frame(method, span<const Value>
+  args)` (constructs a `Frame` and lays `args` into locals via `arg_slot_widths`), `pop_frame()`,
+  `is_terminated()` (`frames_.empty()`). The `VM` owns one `main_thread_`; there is no scheduler
+  or second thread yet. Because `Frame`s live in a `vector`, `push_frame` can reallocate and
+  invalidate a held `Frame&` — the interpreter re-fetches `current_frame()` each instruction, and
+  init-triggering opcodes rewind pc *before* calling `ensure_initialized`.
 - **Runtime constant pool** (`runtime_constant_pool_entry.hpp`): `RuntimeClassInfo`,
   `RuntimeFieldRefInfo`, `RuntimeMethodRefInfo` and `RuntimeStringInfo` are populated on first
   resolution and cache the resolved pointer (`RuntimeStringInfo.resolved` caches the interned
@@ -257,7 +285,27 @@ as `ResourceInputStream.init`). Repeated literals are deduplicated via the heap'
 of a string now yields a live object instead of null) and caches the result in the runtime
 constant pool (`RuntimeStringInfo.resolved`). The exact field layout depends on the vendored
 `java/lang/String.class` on the classpath, and the String class must have been registered with
-the heap (`Heap::set_string_class`, done in the `VM` ctor) first.
+the heap (`Heap::set_string_class`, done in `VM::run`'s bootstrap) first.
+
+### Class initialization
+Class init is **stackless and lazy**, driven off the running `Thread`'s frame stack rather than
+a recursive C++ call:
+- `Class::needs_initialization()` is true only in `InitState::Loaded`. `Initializing`/
+  `Initialized` both mean "proceed" (so a `<clinit>` may touch its own class); `Failed` throws.
+- The init-triggering opcodes (`getstatic`, `putstatic`, `invokestatic`, `new`) check it and,
+  when true, `frame.set_pc(last_pc)` to rewind to the *start* of the current instruction, then
+  call `Class::ensure_initialized(thread)` and fall through to the next dispatch iteration. The
+  instruction re-executes after init completes; checking before any effect keeps the retry
+  idempotent (no double allocation for `new`, args stay on the stack for `invokestatic`).
+- `ensure_initialized` sets the class `Initializing`, pushes its `<clinit>()V` frame (or flips
+  straight to `Initialized` when there is none), then recurses into `super_` — pushing *this*
+  class's clinit **before** the super's so the super ends up on top of the LIFO stack and runs
+  first (super-class-first ordering).
+- When a `<clinit>` frame's `return` executes, `op_return` sees `Method::is_class_initializer`
+  and calls `Class::set_initialized()`, closing the `Initializing -> Initialized` transition.
+- Caveats: the `Failed` state is effectively unreachable (a throwing clinit becomes a
+  `std::runtime_error` that kills the thread and leaves the class stuck in `Initializing`),
+  interfaces are not walked (only the `super_` chain), and there is no cross-thread init locking.
 
 ### Implemented opcodes (dispatched in `interpreter.cpp`)
 Constants/consts: `nop` (0x00), `aconst_null` (0x01), `iconst_m1..5` (0x02–0x08),
@@ -277,12 +325,19 @@ Stack/math: `dup` (0x59), `dup2` (0x5C, single-value for a long/double top),
 Branches: `ifeq` (0x99), `ifne` (0x9A), `iflt` (0x9B), `ifge` (0x9C), `ifle` (0x9E),
 `if_icmpeq` (0x9F), `if_icmpne` (0xA0), `if_icmplt` (0xA1), `if_icmpge` (0xA2),
 `goto` (0xA7), `ifnull` (0xC6), `ifnonnull` (0xC7).
-Returns: `ireturn` (0xAC), `areturn` (0xB0), `return` (0xB1).
+Returns: `ireturn` (0xAC), `areturn` (0xB0), `return` (0xB1). Returns are stackless: they
+`Thread::pop_frame` the current activation and (for `ireturn`/`areturn`) push the result onto
+the caller's operand stack; a `return` from a `<clinit>` frame marks its owner class
+`Initialized`. Returning from the outermost frame empties the thread's stack, terminating it.
 Fields/calls: `getstatic` (0xB2), `putstatic` (0xB3), `getfield` (0xB4), `putfield` (0xB5),
 `invokevirtual` (0xB6, virtual dispatch by walking `find_method` up the receiver's superclass
 chain; a `ClassMirrorData` receiver dispatches against `java/lang/Class`), `invokespecial`
 (0xB7, resolved via `resolve_method`; throws for the not-yet-implemented `ACC_SUPER`
-super-invoke case), `invokestatic` (0xB8, triggers `initialize_class`).
+super-invoke case), `invokestatic` (0xB8). `getstatic`/`putstatic`/`invokestatic`/`new` each
+guard on `Class::needs_initialization()` and, when true, rewind pc + `ensure_initialized`
+instead of performing their effect (lazy stackless init — see
+[Class initialization](#class-initialization)); the `invoke*` opcodes push a frame via the
+shared `Interpreter::invoke` rather than recursing.
 Object/array: `new` (0xBB), `newarray` (0xBC), `anewarray` (0xBD), `arraylength` (0xBE),
 `checkcast` (0xC0, resolves the class but performs no type check), `multianewarray` (0xC5,
 recursively allocates every requested dimension via a self-recursive lambda).
@@ -346,6 +401,22 @@ a method flagged `ACC_NATIVE`, it looks up that key and stores the resulting poi
   (modified) UTF-8.
 
 ## Known gaps / WIP / dead code (as of writing)
+- **Green threads / stackless interpreter (in progress).** The interpreter no longer recurses in
+  C++: `Interpreter::run(Thread&, num_instructions)` executes a bounded budget against a
+  `Thread`'s explicit `vector<Frame>` stack, and `invoke`/returns push/pop frames. This is the
+  groundwork for cooperative green threads, but **there is no scheduler yet** — the `VM` owns a
+  single `main_thread_` and `VM::run` drains it with a `while (!is_terminated())` loop, so the
+  500-instruction quantum is currently moot. No `Thread` id/state enum, no ready/blocked queues,
+  no yield points for blocking natives, and no `java/lang/Thread` binding. The old recursive
+  `Interpreter::execute` entry point is gone (its body remains only as a commented block).
+- **Lazy stackless class init has sharp edges** (mechanism in [Class initialization](#class-initialization)):
+  because `<clinit>` now runs asynchronously in the dispatch loop, the `InitState::Failed`
+  transition is effectively unreachable — a throwing `<clinit>` surfaces as a `std::runtime_error`
+  that kills the thread and leaves the class stuck in `Initializing`. Interfaces are not
+  initialized (only the `super_` chain is walked). `VM::run`'s bootstrap dereferences
+  `find_method("<init>"/"startApp", "()V")` without a null check, and `ireturn`/`areturn` from
+  the outermost frame would call `current_frame()` on an empty stack (currently unreachable
+  because outermost frames are void-returning).
 - **Array/primitive classes now work:** `Class(std::string name, Class* component_type)` sets
   `kind_` to `Array` (component non-null) or `Primitive` (null) and starts in
   `InitState::Initialized`. `ClassLoader::load_array` synthesizes the component chain
@@ -360,7 +431,9 @@ a method flagged `ACC_NATIVE`, it looks up that key and stores the resulting poi
   "invokespecial: ACC_SUPER semantics not implemented yet".
 - **Dead / commented code:** `decode_modified_utf8` in `class_file.cpp` is defined but never
   called; a commented-out `java_lang_Class_newInstance` native remains in
-  `native_methods.cpp`; `Class::resolve_constant` has an unreachable fallback block after its
+  `native_methods.cpp`; the old recursive `Interpreter::execute` (interpreter.cpp) and the old
+  synchronous `VM::initialize_class` (vm.cpp) survive only as commented-out blocks;
+  `Class::resolve_constant` has an unreachable fallback block after its
   `std::visit` return; several `TODO(Kostu)` markers persist (empty `Font.init` body, the
   `overloaded` visitor "move this to utils", the commented-out `Graphics` translation offsets,
   and a "set color once" note shared by `fillRect`/`drawStringNative`).
