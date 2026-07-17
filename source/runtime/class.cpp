@@ -136,11 +136,11 @@ Class::Class(const char* filename, ClassLoader& class_loader) :
         Method method{ .owner = *this };
         method.name = class_file_->constant_pool_utf8(method_info.name_index);
         method.descriptor = class_file_->constant_pool_utf8(method_info.descriptor_index);
-        method.arg_slot_widths = compute_arg_slot_widths(method.descriptor, method.is_static);
         method.is_static = (method_info.access_flags & ACC_STATIC) != 0;
         method.is_native = (method_info.access_flags & ACC_NATIVE) != 0;
         method.is_class_initializer =
             (method.name == "<clinit>" && method.descriptor == "()V" && method.is_static);
+        method.arg_slot_widths = compute_arg_slot_widths(method.descriptor, method.is_static);
 
         if (method.is_class_initializer && is_interface_) {
             throw std::runtime_error("Class: interface " + std::string(this_name_) +

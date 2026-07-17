@@ -63,9 +63,8 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             }, val);
         }
         std::println("]");
-        std::print("{:>{}}{:04X}: ", "", indent, frame.pc());
-        const auto opcode = frame.pop_code_u8();
 
+        const auto opcode = frame.pop_code_u8();
         switch (opcode) {
         case op_nop: {
             std::println("{:{}}", "nop", OPCODE_PRINT_PAD_WIDTH);
