@@ -83,4 +83,8 @@ struct ClassMirrorData {
 
 struct Object {
     std::variant<InstanceData, PrimitiveArrayData, InstanceArrayData, ClassMirrorData> data;
+    struct Monitor {
+        Thread* owner = nullptr;
+        uint32_t recursion_count = 0;
+    } monitor;
 };

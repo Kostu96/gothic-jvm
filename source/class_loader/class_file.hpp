@@ -69,8 +69,6 @@ public:
     FieldAndMethodStringRef get_method_string_ref(uint16_t constant_pool_index) const;
     FieldAndMethodStringRef get_interface_method_string_ref(uint16_t constant_pool_index) const;
 
-    Value get_constant(uint16_t constant_pool_index) const;
-
     uint16_t access_flags() const { return access_flags_; }
     std::string_view this_name() const { return get_class_name(this_class_); }
     std::string_view super_name() const { return super_class_ != 0 ? get_class_name(super_class_) : ""; }

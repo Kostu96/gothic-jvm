@@ -56,8 +56,7 @@ Object* Heap::new_interned_string(std::string_view str) {
             instance.fields[field->slot] = field_value;
         }
     };
-    set_field("count", "I", static_cast<int32_t>(str.size()));
-    set_field("hash", "I", static_cast<int32_t>(0)); // TODO(Kostu): hash is not set properly
+    set_field("size", "I", static_cast<int32_t>(value.size()));
 
     instance.native_payload = StringNativeData{ value };
 

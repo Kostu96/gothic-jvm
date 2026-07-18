@@ -40,7 +40,7 @@ private:
     NativeMethods native_methods_;
     ClassLoader class_loader_;
     Heap heap_;
-    Thread main_thread_;
+    std::vector<std::unique_ptr<Thread>> threads_;
     Interpreter interpreter_;
     std::atomic<bool> stop_requested_{ false };
 };

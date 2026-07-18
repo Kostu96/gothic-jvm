@@ -79,6 +79,8 @@ constexpr uint8_t op_idiv = 0x6C;
 
 constexpr uint8_t op_irem = 0x70;
 
+constexpr uint8_t op_ineg = 0x74;
+
 constexpr uint8_t op_ishl = 0x78;
 
 constexpr uint8_t op_ishr = 0x7A;
@@ -104,6 +106,8 @@ constexpr uint8_t op_if_icmpeq = 0x9F;
 constexpr uint8_t op_if_icmpne = 0xA0;
 constexpr uint8_t op_if_icmplt = 0xA1;
 constexpr uint8_t op_if_icmpge = 0xA2;
+constexpr uint8_t op_if_icmpgt = 0xA3;
+constexpr uint8_t op_if_icmple = 0xA4;
 
 constexpr uint8_t op_goto = 0xA7;
 
@@ -125,6 +129,9 @@ constexpr uint8_t op_anewarray = 0xBD;
 constexpr uint8_t op_arraylength = 0xBE;
 
 constexpr uint8_t op_checkcast = 0xC0;
+
+constexpr uint8_t op_monitorenter = 0xC2;
+constexpr uint8_t op_monitorexit = 0xC3;
 
 constexpr uint8_t op_multianewarray = 0xC5;
 constexpr uint8_t op_ifnull = 0xC6;

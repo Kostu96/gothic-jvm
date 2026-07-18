@@ -222,15 +222,6 @@ Value Class::resolve_constant(uint16_t index, ClassLoader& class_loader, Heap& h
                 "Class: constant pool entry at index {} is not valid constant", index));
         }
     }, runtime_constant_pool_[index]);
-
-    Value value = class_file_->get_constant(index);
-    if (std::holds_alternative<std::monostate>(value)) {
-        const std::string_view str = class_file_->get_string(index);
-
-        value = heap.new_interned_string(str);
-    }
-
-    return value;
 }
 
 Class& Class::resolve_class(uint16_t index, ClassLoader& class_loader) {

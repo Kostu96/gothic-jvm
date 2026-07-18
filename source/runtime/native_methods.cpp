@@ -75,6 +75,33 @@ void java_lang_String_indexOf(VM& vm, Frame& frame) {
     frame.push_stack(result_index);
 }
 
+void java_lang_String_init_StringBuffer(VM& vm, Frame& frame) {
+    auto& buffer_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& buffer_native = std::get<StringNativeData>(buffer_instance.native_payload);
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    StringNativeData native_data;
+    native_data.value = buffer_native.value;
+    str_instance.native_payload = native_data;
+}
+
+void java_lang_String_init_char_array(VM& vm, Frame& frame) {
+    auto size = std::get<int32_t>(frame.pop_stack());
+    auto offset = std::get<int32_t>(frame.pop_stack());
+    auto& char_array = std::get<PrimitiveArrayData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    if (offset < 0 || size < 0 || offset + size > char_array.length()) {
+        // In a complete VM this would raise StringIndexOutOfBoundsException.
+        throw std::runtime_error("String.init: offset and size out of bounds");
+    }
+    StringNativeData native_data;
+    native_data.value.reserve(size);
+    for (int32_t i = 0; i < size; ++i) {
+        native_data.value.push_back(
+            static_cast<char16_t>(std::get<int32_t>(char_array.get(offset + i))));
+    }
+    str_instance.native_payload = native_data;
+}
+
 void java_lang_String_lastIndexOf(VM& vm, Frame& frame) {
     auto char_value = std::get<int32_t>(frame.pop_stack());
     auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
@@ -89,10 +116,34 @@ void java_lang_String_lastIndexOf(VM& vm, Frame& frame) {
     frame.push_stack(result_index);
 }
 
+void java_lang_StringBuffer_append(VM& vm, Frame& frame) {
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& str_native = std::get<StringNativeData>(str_instance.native_payload);
+    auto& buffer_instance = std::get<InstanceData>(std::get<Object*>(frame.peek_stack())->data);
+    auto& buffer_native = std::get<StringNativeData>(buffer_instance.native_payload);
+
+    buffer_native.value.append(str_native.value);
+    auto* size_field = str_instance.type.find_field("size", "I");
+    buffer_instance.fields[size_field->slot] = static_cast<int32_t>(buffer_native.value.size());
+}
+
+void java_lang_StringBuffer_init(VM& vm, Frame& frame) {
+    auto& buffer_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+
+
+    StringNativeData native_data;
+    buffer_instance.native_payload = native_data;
+}
+
 void java_lang_System_currentTimeMillis(VM& vm, Frame& frame) {
     std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch());
     frame.push_stack(static_cast<int64_t>(ms.count()));
+}
+
+void java_lang_Thread_start(VM& vm, Frame& frame) {
+    auto& thread_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    // TODO(Kostu): implement thread start
 }
 
 void javax_microedition_lcdui_Canvas_getHeight(VM& vm, Frame& frame) {
@@ -211,23 +262,28 @@ NativeMethods::NativeMethods() {
         { "com/kostu96/gjvm/ResourceInputStream.read()I",
            com_kostu96_gjvm_ResourceInputStream_read },
 
-        { "java/lang/Class.getName()Ljava/lang/String;",  java_lang_Class_getName },
+        { "java/lang/Class.getName()Ljava/lang/String;", java_lang_Class_getName },
         { "java/lang/Object.getClass()Ljava/lang/Class;", java_lang_Object_getClass },
-        { "java/lang/String.charAt(I)C",                  java_lang_String_charAt },
-        { "java/lang/String.indexOf(II)I",                java_lang_String_indexOf },
-        { "java/lang/String.lastIndexOf(I)I",             java_lang_String_lastIndexOf },
-        { "java/lang/System.currentTimeMillis()J",        java_lang_System_currentTimeMillis },
+        { "java/lang/String.charAt(I)C", java_lang_String_charAt },
+        { "java/lang/String.indexOf(II)I", java_lang_String_indexOf },
+        { "java/lang/String.init(Ljava/lang/StringBuffer;)V", java_lang_String_init_StringBuffer },
+        { "java/lang/String.init([CII)V", java_lang_String_init_char_array },
+        { "java/lang/String.lastIndexOf(I)I", java_lang_String_lastIndexOf },
+        { "java/lang/StringBuffer.append(Ljava/lang/String;)Ljava/lang/StringBuffer;", java_lang_StringBuffer_append },
+        { "java/lang/StringBuffer.init()V", java_lang_StringBuffer_init },
+        { "java/lang/System.currentTimeMillis()J", java_lang_System_currentTimeMillis },
+        { "java/lang/Thread.start()V", java_lang_Thread_start },
         
         { "javax/microedition/lcdui/Canvas.getHeight()I", javax_microedition_lcdui_Canvas_getHeight },
-        { "javax/microedition/lcdui/Canvas.getWidth()I",  javax_microedition_lcdui_Canvas_getWidth },
-        { "javax/microedition/lcdui/Font.init()V",        javax_microedition_lcdui_Font_init },
+        { "javax/microedition/lcdui/Canvas.getWidth()I", javax_microedition_lcdui_Canvas_getWidth },
+        { "javax/microedition/lcdui/Font.init()V", javax_microedition_lcdui_Font_init },
         { "javax/microedition/lcdui/Graphics.drawStringNative(Ljava/lang/String;II)V",
            javax_microedition_lcdui_Graphics_drawStringNative },
         { "javax/microedition/lcdui/Graphics.fillRect(IIII)V", javax_microedition_lcdui_Graphics_fillRect },
         { "javax/microedition/lcdui/Graphics.init(Ljavax/microedition/lcdui/Image;)V",
            javax_microedition_lcdui_Graphics_init },
         { "javax/microedition/lcdui/Image.getRGB([IIIIIII)V", javax_microedition_lcdui_Image_getRGB },
-        { "javax/microedition/lcdui/Image.init(II)V",     javax_microedition_lcdui_Image_init }
+        { "javax/microedition/lcdui/Image.init(II)V", javax_microedition_lcdui_Image_init }
     });
 }
 

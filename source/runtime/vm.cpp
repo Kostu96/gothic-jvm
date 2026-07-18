@@ -21,7 +21,8 @@ void VM::run() {
         Phase4
     };
     BootsrapState bootstrap_state = BootsrapState::Boot;
-    
+    auto& main_thread = *threads_.emplace_back(std::make_unique<Thread>()).get();
+
     Class& string_class = class_loader_.load("java/lang/String");
     heap_.set_string_class(string_class);
     Class& main_class = class_loader_.load(main_class_name_);
@@ -32,34 +33,34 @@ void VM::run() {
             using enum BootsrapState;
         case Boot: {
             bootstrap_state = Phase1;
-            string_class.ensure_initialized(main_thread_);
+            string_class.ensure_initialized(main_thread);
         } break;
         case Phase1: {
-            if (main_thread_.is_terminated()) {
+            if (main_thread.is_terminated()) {
                 bootstrap_state = Phase2;
-                main_class.ensure_initialized(main_thread_);
+                main_class.ensure_initialized(main_thread);
             }
         } break;
         case Phase2: {
-            if (main_thread_.is_terminated()) {
+            if (main_thread.is_terminated()) {
                 bootstrap_state = Phase3;
                 main_obj = heap_.new_instance(main_class);
-                main_thread_.push_frame(*main_class.find_method("<init>", "()V"), std::span{ &main_obj, 1 });
+                main_thread.push_frame(*main_class.find_method("<init>", "()V"), std::span{ &main_obj, 1 });
             }
         } break;
         case Phase3: {
-            if (main_thread_.is_terminated()) {
+            if (main_thread.is_terminated()) {
                 bootstrap_state = Phase4;
-                main_thread_.push_frame(*main_class.find_method("startApp", "()V"), std::span{ &main_obj, 1 });
+                main_thread.push_frame(*main_class.find_method("startApp", "()V"), std::span{ &main_obj, 1 });
             }
         } break;
         case Phase4: {
-            if (main_thread_.is_terminated()) {
+            if (main_thread.is_terminated()) {
                 return;
             }
         } break;
         }
 
-        interpreter_.run(main_thread_, 500);
+        interpreter_.run(main_thread, 500);
     }
 }

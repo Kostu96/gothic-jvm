@@ -4,23 +4,17 @@ import com.kostu96.gjvm.ResourceInputStream;
 
 import java.io.*;
 
+/*
+ * Instances of the class Class represent classes and interfaces in a running Java application.
+ * Every array also belongs to a class that is reflected as a Class object that is shared by all arrays
+ * with the same element type and number of dimensions.
+ * 
+ * Class has no public constructor. Instead Class objects are constructed automatically by the Java Virtual Machine
+ * as classes are loaded.
+ */
 public final class Class {
 
-    public String toString() {
-        return (isInterface() ? "interface " :  "class ") + getName();
-    }
-
-    public static native Class forName(String className) throws ClassNotFoundException;
-
-    public native Object newInstance() throws InstantiationException, IllegalAccessException;
-
-    public native boolean isInstance(Object obj);
-
-    public native boolean isAssignableFrom(Class cls);
-
-    public native boolean isInterface();
-
-    public native boolean isArray();
+    //public static native Class forName(String className) throws ClassNotFoundException;
 
     public native String getName();
 
@@ -42,6 +36,20 @@ public final class Class {
         } catch (IOException x) {
             return null;
         }
+    }
+
+    // public native boolean isArray();
+
+    // public native boolean isAssignableFrom(Class cls);
+
+    // public native boolean isInstance(Object obj);
+
+    public native boolean isInterface();
+
+    // public native Object newInstance() throws InstantiationException, IllegalAccessException;
+
+    public String toString() {
+        return (isInterface() ? "interface " :  "class ") + getName();
     }
 
     private Class() {}

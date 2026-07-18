@@ -6,19 +6,29 @@ set(JAVA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/com/nokia/mid/ui/FullCanvas.java
 
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Class.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Integer.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Object.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Runnable.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/String.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/StringBuffer.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/System.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Thread.java
 
-    ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Canvas.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Display.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Command.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/CommandListener.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Displayable.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Font.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Graphics.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Image.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/Control.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/Controllable.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/MediaException.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/Player.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/PlayerListener.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/midlet/MIDlet.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/midlet/MIDletStateChangeException.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/rms/RecordStore.java
 )
 
 set(CLASS_OUTPUT_DIR ${CMAKE_BINARY_DIR}/java_classes)

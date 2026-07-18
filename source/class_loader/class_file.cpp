@@ -24,6 +24,7 @@ std::vector<std::byte> read_file(const char* filename) {
     return buffer;
 }
 
+// TODO(Kostu): use this when creating String objects from Utf8Info in the constant pool
 std::u16string decode_modified_utf8(std::string_view input) {
     std::u16string result;
     result.reserve(input.size());
@@ -254,25 +255,4 @@ FieldAndMethodStringRef ClassFile::get_interface_method_string_ref(uint16_t cons
         constant_pool_utf8(name_and_type_info.name_index),
         constant_pool_utf8(name_and_type_info.descriptor_index)
     };
-}
-
-Value ClassFile::get_constant(uint16_t constant_pool_index) const {
-    if (constant_pool_index == 0 || constant_pool_index >= constant_pool_.size()) {
-        throw std::out_of_range("ClassFile: invalid constant pool index: " + std::to_string(constant_pool_index));
-    }
-
-    return std::visit([&](const auto& entry) {
-        using T = std::decay_t<decltype(entry)>;
-        if constexpr (std::is_same_v<T, IntegerInfo> || std::is_same_v<T, LongInfo>) {
-            return Value(entry.value);
-        }
-        else if constexpr (std::is_same_v<T, StringInfo>) {
-            return Value();
-        }
-        else {
-            throw std::runtime_error("ClassFile: constant pool entry at index " + std::to_string(constant_pool_index) +
-                                     " is not a supported constant type");
-            return Value();
-        }
-        }, constant_pool_[constant_pool_index]);
 }

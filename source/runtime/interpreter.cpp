@@ -15,10 +15,6 @@
 
 namespace {
 
-int indent = 0;
-
-constexpr int OPCODE_PRINT_PAD_WIDTH = 16;
-
 PrimitiveArrayData::ElementType primitive_array_element_type(std::string_view primitive_name) {
     using enum PrimitiveArrayData::ElementType;
     if (primitive_name == "boolean") return Boolean;
@@ -36,8 +32,8 @@ PrimitiveArrayData::ElementType primitive_array_element_type(std::string_view pr
 }
 
 // TODO(Kostu): move this to utils
-template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
-template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
+//template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+//template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 void Interpreter::run(Thread& thread, size_t num_instructions) {
     while (num_instructions-- > 0 && !thread.is_terminated()) {
@@ -47,179 +43,124 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         auto& frame = thread.current_frame();
         size_t last_pc = frame.pc();
 
-        std::print("{:>{}}Stack: [", "", indent);
-        for (size_t i = 0; i < frame.operand_stack().size(); ++i) {
-            if (i > 0) {
-                std::print(", ");
-            }
-            auto val = frame.operand_stack()[i];
-            std::visit(overloaded{
-                [](std::monostate) { std::print("!invalid!"); },
-                [](int32_t arg) { std::print("int: {}", arg); },
-                [](int64_t arg) { std::print("long: {}", arg); },
-                [](float arg) { std::print("float: {}", arg); },
-                [](double arg) { std::print("double: {}", arg); },
-                [](Object* arg) { std::print("object: {}", static_cast<const void*>(arg)); }
-            }, val);
-        }
-        std::println("]");
-
         const auto opcode = frame.pop_code_u8();
         switch (opcode) {
-        case op_nop: {
-            std::println("{:{}}", "nop", OPCODE_PRINT_PAD_WIDTH);
-        } break;
+        case op_nop: break;
         case op_aconst_null: {
-            std::println("{:{}}", "aconst_null", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<Object*>(nullptr));
         } break;
         case op_iconst_m1: {
-            std::println("{:{}}", "iconst_m1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(-1));
         } break;
         case op_iconst_0: {
-            std::println("{:{}}", "iconst_0", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(0));
         } break;
         case op_iconst_1: {
-            std::println("{:{}}", "iconst_1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(1));
         } break;
         case op_iconst_2: {
-            std::println("{:{}}", "iconst_2", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(2));
         } break;
         case op_iconst_3: {
-            std::println("{:{}}", "iconst_3", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(3));
         } break;
         case op_iconst_4: {
-            std::println("{:{}}", "iconst_4", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(4));
         } break;
         case op_iconst_5: {
-            std::println("{:{}}", "iconst_5", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int32_t>(5));
         } break;
         case op_lconst_0: {
-            std::println("{:{}}", "lconst_0", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int64_t>(0));
         } break;
         case op_lconst_1: {
-            std::println("{:{}}", "lconst_1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<int64_t>(1));
         } break;
         case op_fconst_0: {
-            std::println("{:{}}", "fconst_0", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<float>(0.0));
         } break;
         case op_fconst_1: {
-            std::println("{:{}}", "fconst_1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<float>(1.0));
         } break;
         case op_fconst_2: {
-            std::println("{:{}}", "fconst_2", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<float>(2.0));
         } break;
         case op_dconst_0: {
-            std::println("{:{}}", "dconst_0", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<double>(0.0));
         } break;
         case op_dconst_1: {
-            std::println("{:{}}", "dconst_1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(static_cast<double>(1.0));
         } break;
         case op_bipush: {
-            auto byte = frame.pop_code_u8();
-            std::println("{:{}} {:02X}", "bipush", OPCODE_PRINT_PAD_WIDTH, byte);
-            frame.push_stack(static_cast<int32_t>(byte));
+            auto value = frame.pop_code_u8();
+            frame.push_stack(static_cast<int32_t>(value));
         } break;
         case op_sipush: {
-            auto short_value = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "sipush", OPCODE_PRINT_PAD_WIDTH, short_value);
-            frame.push_stack(static_cast<int32_t>(short_value));
+            auto value = frame.pop_code_u16();
+            frame.push_stack(static_cast<int32_t>(value));
         } break;
         case op_ldc: {
             const auto index = frame.pop_code_u8();
-            std::println("{:{}} {:02X}", "ldc", OPCODE_PRINT_PAD_WIDTH, index);
             const auto value = frame.owner().resolve_constant(index, vm_.class_loader(), vm_.heap());
             frame.push_stack(value);
         } break;
         case op_ldc_w: {
             const auto index = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "ldc_w", OPCODE_PRINT_PAD_WIDTH, index);
             const auto value = frame.owner().resolve_constant(index, vm_.class_loader(), vm_.heap());
             frame.push_stack(value);
         } break;
         case op_ldc2_w: {
             const auto index = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "ldc2_w", OPCODE_PRINT_PAD_WIDTH, index);
             const auto value = frame.owner().resolve_constant(index, vm_.class_loader(), vm_.heap());
             frame.push_stack(value);
         } break;
         case op_iload: {
             auto index = frame.pop_code_u8();
-            std::println("{:{}} {:02X}", "iload", OPCODE_PRINT_PAD_WIDTH, index);
             frame.push_stack(frame.locals()[index]);
         } break;
 
         case op_aload: {
             auto index = frame.pop_code_u8();
-            std::println("{:{}} {:02X}", "aload", OPCODE_PRINT_PAD_WIDTH, index);
             frame.push_stack(frame.locals()[index]);
         } break;
         case op_iload_0: {
-            std::println("{:{}}", "iload_0", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[0]);
         } break;
         case op_iload_1: {
-            std::println("{:{}}", "iload_1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[1]);
         } break;
         case op_iload_2: {
-            std::println("{:{}}", "iload_2", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[2]);
         } break;
         case op_iload_3: {
-            std::println("{:{}}", "iload_3", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[3]);
         } break;
         case op_lload_0: {
-            std::println("{:{}}", "lload_0", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[0]);
         } break;
         case op_lload_1: {
-            std::println("{:{}}", "lload_1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[1]);
         } break;
         case op_lload_2: {
-            std::println("{:{}}", "lload_2", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[2]);
         } break;
         case op_lload_3: {
-            std::println("{:{}}", "lload_3", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[3]);
         } break;
 
         case op_aload_0: {
-            std::println("{:{}}", "aload_0", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[0]);
         } break;
         case op_aload_1: {
-            std::println("{:{}}", "aload_1", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[1]);
         } break;
         case op_aload_2: {
-            std::println("{:{}}", "aload_2", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[2]);
         } break;
         case op_aload_3: {
-            std::println("{:{}}", "aload_3", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.locals()[3]);
         } break;
         case op_iaload: {
-            std::println("{:{}}", "iaload", OPCODE_PRINT_PAD_WIDTH);
-
             auto index = std::get<int32_t>(frame.pop_stack());
             auto* reference = std::get<Object*>(frame.pop_stack());
             auto* array = reference ? std::get_if<PrimitiveArrayData>(&reference->data) : nullptr;
@@ -231,8 +172,6 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         } break;
 
         case op_aaload: {
-            std::println("{:{}}", "aaload", OPCODE_PRINT_PAD_WIDTH);
-
             auto index = std::get<int32_t>(frame.pop_stack());
             auto* reference = std::get<Object*>(frame.pop_stack());
             auto* array = reference ? std::get_if<InstanceArrayData>(&reference->data) : nullptr;
@@ -244,8 +183,6 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         } break;
 
         case op_caload: {
-            std::println("{:{}}", "caload", OPCODE_PRINT_PAD_WIDTH);
-
             auto index = std::get<int32_t>(frame.pop_stack());
             auto* reference = std::get<Object*>(frame.pop_stack());
             auto* array = reference ? std::get_if<PrimitiveArrayData>(&reference->data) : nullptr;
@@ -258,55 +195,43 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
 
         case op_istore: {
             auto index = frame.pop_code_u8();
-            std::println("{:{}} {:02X}", "istore", OPCODE_PRINT_PAD_WIDTH, index);
             frame.locals()[index] = frame.pop_stack();
         } break;
 
         case op_astore: {
             auto index = frame.pop_code_u8();
-            std::println("{:{}} {:02X}", "astore", OPCODE_PRINT_PAD_WIDTH, index);
             frame.locals()[index] = frame.pop_stack();
         } break;
         case op_istore_0: {
-            std::println("{:{}}", "istore_0", OPCODE_PRINT_PAD_WIDTH);
             frame.locals()[0] = frame.pop_stack();
         } break;
         case op_istore_1: {
-            std::println("{:{}}", "istore_1", OPCODE_PRINT_PAD_WIDTH);
             frame.locals()[1] = frame.pop_stack();
         } break;
         case op_istore_2: {
-            std::println("{:{}}", "istore_2", OPCODE_PRINT_PAD_WIDTH);
             frame.locals()[2] = frame.pop_stack();
         } break;
         case op_istore_3: {
-            std::println("{:{}}", "istore_3", OPCODE_PRINT_PAD_WIDTH);
             frame.locals()[3] = frame.pop_stack();
         } break;
 
         case op_astore_0: {
-            std::println("{:{}}", "astore_0", OPCODE_PRINT_PAD_WIDTH);
             auto value = std::get<Object*>(frame.pop_stack());
             frame.locals()[0] = value;
         } break;
         case op_astore_1: {
-            std::println("{:{}}", "astore_1", OPCODE_PRINT_PAD_WIDTH);
             auto value = std::get<Object*>(frame.pop_stack());
             frame.locals()[1] = value;
         } break;
         case op_astore_2: {
-            std::println("{:{}}", "astore_2", OPCODE_PRINT_PAD_WIDTH);
             auto value = std::get<Object*>(frame.pop_stack());
             frame.locals()[2] = value;
         } break;
         case op_astore_3: {
-            std::println("{:{}}", "astore_3", OPCODE_PRINT_PAD_WIDTH);
             auto value = std::get<Object*>(frame.pop_stack());
             frame.locals()[3] = value;
         } break;
         case op_iastore: {
-            std::println("{:{}}", "iastore", OPCODE_PRINT_PAD_WIDTH);
-
             auto value = std::get<int32_t>(frame.pop_stack());
             auto index = std::get<int32_t>(frame.pop_stack());
             auto* reference = std::get<Object*>(frame.pop_stack());
@@ -319,8 +244,6 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         } break;
         
         case op_aastore: {
-            std::println("{:{}}", "aastore", OPCODE_PRINT_PAD_WIDTH);
-
             auto object = std::get<Object*>(frame.pop_stack());
             auto index = std::get<int32_t>(frame.pop_stack());
             auto reference = std::get<Object*>(frame.pop_stack());
@@ -340,8 +263,6 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             array->elements[index] = object;
         } break;
         case op_bastore: {
-            std::println("{:{}}", "bastore", OPCODE_PRINT_PAD_WIDTH);
-
             auto value = std::get<int32_t>(frame.pop_stack());
             auto index = std::get<int32_t>(frame.pop_stack());
             auto* reference = std::get<Object*>(frame.pop_stack());
@@ -354,8 +275,6 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             array->set(index, element);
         } break;
         case op_castore: {
-            std::println("{:{}}", "castore", OPCODE_PRINT_PAD_WIDTH);
-
             auto value = std::get<int32_t>(frame.pop_stack());
             auto index = std::get<int32_t>(frame.pop_stack());
             auto* reference = std::get<Object*>(frame.pop_stack());
@@ -368,8 +287,6 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             array->set(index, element);
         } break;
         case op_sastore: {
-            std::println("{:{}}", "sastore", OPCODE_PRINT_PAD_WIDTH);
-
             auto value = std::get<int32_t>(frame.pop_stack());
             auto index = std::get<int32_t>(frame.pop_stack());
             auto* reference = std::get<Object*>(frame.pop_stack());
@@ -383,12 +300,10 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         } break;
         
         case op_dup: {
-            std::println("{:{}}", "dup", OPCODE_PRINT_PAD_WIDTH);
             frame.push_stack(frame.peek_stack());
         } break;
 
         case op_dup2: {
-            std::println("{:{}}", "dup2", OPCODE_PRINT_PAD_WIDTH);
             auto value1 = frame.peek_stack();
             if (std::holds_alternative<int64_t>(value1) || std::holds_alternative<double>(value1)) {
                 // If the top value is a long or double, we only need to duplicate it once.
@@ -402,28 +317,24 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         } break;
 
         case op_iadd: {
-            std::println("{:{}}", "iadd", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(value1 + value2);
         } break;
 
         case op_isub: {
-            std::println("{:{}}", "isub", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(value1 - value2);
         } break;
 
         case op_imul: {
-            std::println("{:{}}", "imul", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(value1 * value2);
         } break;
 
         case op_idiv: {
-            std::println("{:{}}", "idiv", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
             if (value2 == 0) {
@@ -434,7 +345,6 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         } break;
 
         case op_irem: {
-            std::println("{:{}}", "irem", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
             if (value2 == 0) {
@@ -444,95 +354,83 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             frame.push_stack(value1 % value2);
         } break;
 
+        case op_ineg: {
+            auto value = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(-value);
+        } break;
+
         case op_ishl: {
-            std::println("{:{}}", "ishl", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(value1 << (value2 & 0x1F));
         } break;
 
         case op_ishr: {
-            std::println("{:{}}", "ishr", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(value1 >> (value2 & 0x1F));
         } break;
 
         case op_iand: {
-            std::println("{:{}}", "iand", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(value1 & value2);
         } break;
         case op_land: {
-            std::println("{:{}}", "land", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int64_t>(frame.pop_stack());
             auto value1 = std::get<int64_t>(frame.pop_stack());
             frame.push_stack(value1 & value2);
         } break;
         case op_ior: {
-            std::println("{:{}}", "ior", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(value1 | value2);
         } break;
 
         case op_lxor: {
-            std::println("{:{}}", "lxor", OPCODE_PRINT_PAD_WIDTH);
             auto value2 = std::get<int64_t>(frame.pop_stack());
             auto value1 = std::get<int64_t>(frame.pop_stack());
             frame.push_stack(value1 ^ value2);
         } break;
         case op_iinc: {
-            std::println("{:{}}", "iinc", OPCODE_PRINT_PAD_WIDTH);
             auto index = frame.pop_code_u8();
             auto constant = static_cast<int8_t>(frame.pop_code_u8());
             frame.locals()[index] = std::get<int32_t>(frame.locals()[index]) + constant;
         } break;
 
         case op_i2b: {
-            std::println("{:{}}", "i2b", OPCODE_PRINT_PAD_WIDTH);
             auto value = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(static_cast<int32_t>(static_cast<int8_t>(value)));
         } break;
 
         case op_i2s: {
-            std::println("{:{}}", "i2s", OPCODE_PRINT_PAD_WIDTH);
             auto value = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(static_cast<int32_t>(static_cast<int16_t>(value)));
         } break;
 
         case op_ifeq: {
-            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
-            std::println("{:{}} {:04X}", "ifeq", OPCODE_PRINT_PAD_WIDTH, offset);
-
+            auto offset = static_cast<int16_t>(frame.pop_code_u16());
             auto value = std::get<int32_t>(frame.pop_stack());
             if (value == 0) {
                 frame.branch(offset - 3); // -3 to account for the size of the instruction itself
             }
         } break;
         case op_ifne: {
-            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
-            std::println("{:{}} {:04X}", "ifne", OPCODE_PRINT_PAD_WIDTH, offset);
-            
+            auto offset = static_cast<int16_t>(frame.pop_code_u16());
             auto value = std::get<int32_t>(frame.pop_stack());
             if (value != 0) {
                 frame.branch(offset - 3); // -3 to account for the size of the instruction itself
             }
         } break;
         case op_iflt: {
-            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
-            std::println("{:{}} {:04X}", "iflt", OPCODE_PRINT_PAD_WIDTH, offset);
-
+            auto offset = static_cast<int16_t>(frame.pop_code_u16());
             auto value = std::get<int32_t>(frame.pop_stack());
             if (value < 0) {
                 frame.branch(offset - 3); // -3 to account for the size of the instruction itself
             }
         } break;
         case op_ifge: {
-            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
-            std::println("{:{}} {:04X}", "ifge", OPCODE_PRINT_PAD_WIDTH, offset);
-            
+            auto offset = static_cast<int16_t>(frame.pop_code_u16());
             auto value = std::get<int32_t>(frame.pop_stack());
             if (value >= 0) {
                 frame.branch(offset - 3); // -3 to account for the size of the instruction itself
@@ -540,17 +438,14 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         } break;
 
         case op_ifle: {
-            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
-            std::println("{:{}} {:04X}", "ifle", OPCODE_PRINT_PAD_WIDTH, offset);
-            
+            auto offset = static_cast<int16_t>(frame.pop_code_u16());
             auto value = std::get<int32_t>(frame.pop_stack());
             if (value <= 0) {
                 frame.branch(offset - 3); // -3 to account for the size of the instruction itself
             }
         } break;
         case op_if_icmpeq: {
-            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
-            std::println("{:{}} {:04X}", "if_icmpeq", OPCODE_PRINT_PAD_WIDTH, offset);
+            auto offset = static_cast<int16_t>(frame.pop_code_u16());
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
             if (value1 == value2) {
@@ -558,9 +453,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             }
         } break;
         case op_if_icmpne: {
-            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
-            std::println("{:{}} {:04X}", "if_icmpne", OPCODE_PRINT_PAD_WIDTH, offset);
-
+            auto offset = static_cast<int16_t>(frame.pop_code_u16());
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
             if (value1 != value2) {
@@ -568,9 +461,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             }
         } break;
         case op_if_icmplt: {
-            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
-            std::println("{:{}} {:04X}", "if_icmplt", OPCODE_PRINT_PAD_WIDTH, offset);
-
+            auto offset = static_cast<int16_t>(frame.pop_code_u16());
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
             if (value1 < value2) {
@@ -578,59 +469,63 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             }
         } break;
         case op_if_icmpge: {
-            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
-            std::println("{:{}} {:04X}", "if_icmpge", OPCODE_PRINT_PAD_WIDTH, offset);
-
+            auto offset = static_cast<int16_t>(frame.pop_code_u16());
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
             if (value1 >= value2) {
                 frame.branch(offset - 3); // -3 to account for the size of the instruction itself
             }
         } break;
+        case op_if_icmpgt: {
+            auto offset = static_cast<int16_t>(frame.pop_code_u16());
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            if (value1 > value2) {
+                frame.branch(offset - 3); // -3 to account for the size of the instruction itself
+            }
+        } break;
+        case op_if_icmple: {
+            auto offset = static_cast<int16_t>(frame.pop_code_u16());
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            if (value1 <= value2) {
+                frame.branch(offset - 3); // -3 to account for the size of the instruction itself
+            }
+        } break;
 
         case op_goto: {
-            const auto offset = static_cast<int16_t>(frame.pop_code_u16());
-            std::println("{:{}} {:04X}", "goto", OPCODE_PRINT_PAD_WIDTH, offset);
-
+            auto offset = static_cast<int16_t>(frame.pop_code_u16());
             frame.branch(offset - 3); // -3 to account for the size of the instruction itself
         } break;
 
         case op_ireturn: {
-            std::println("{:{}}", "ireturn", OPCODE_PRINT_PAD_WIDTH);
             if (frame.operand_stack().size() != 1) {
                 throw std::runtime_error("ireturn: operand stack should have exactly one value");
             }
-            //indent -= 2;
             Value ret = frame.pop_stack();
             thread.pop_frame();
             thread.current_frame().push_stack(ret);
         } break;
 
         case op_areturn: {
-            std::println("{:{}}", "areturn", OPCODE_PRINT_PAD_WIDTH);
             if (frame.operand_stack().size() != 1) {
                 throw std::runtime_error("areturn: operand stack should have exactly one value");
             }
-            //indent -= 2;
             Value ret = frame.pop_stack();
             thread.pop_frame();
             thread.current_frame().push_stack(ret);
         } break;
         case op_return: {
-            std::println("{:{}}", "return", OPCODE_PRINT_PAD_WIDTH);
             if (!frame.operand_stack().empty()) {
                 throw std::runtime_error("return: operand stack should be empty");
             }
-            //indent -= 2;
             if (frame.method().is_class_initializer) {
                 frame.method().owner.set_initialized();
             }
             thread.pop_frame();
         } break;
         case op_getstatic: {
-            const auto index = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "getstatic", OPCODE_PRINT_PAD_WIDTH, index);
-
+            auto index = frame.pop_code_u16();
             auto& field = frame.owner().resolve_field(index, vm_.class_loader());
             if (!field.is_static) {
                 throw std::runtime_error(std::format(
@@ -647,9 +542,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             }
         } break;
         case op_putstatic: {
-            const auto index = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "putstatic", OPCODE_PRINT_PAD_WIDTH, index);
-
+            auto index = frame.pop_code_u16();
             auto& field = frame.owner().resolve_field(index, vm_.class_loader());
             if (!field.is_static) {
                 throw std::runtime_error(std::format(
@@ -666,9 +559,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             }
         } break;
         case op_getfield: {
-            const auto index = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "getfield", OPCODE_PRINT_PAD_WIDTH, index);
-
+            auto index = frame.pop_code_u16();
             auto& field = frame.owner().resolve_field(index, vm_.class_loader());
             if (field.is_static) {
                 throw std::runtime_error(std::format(
@@ -680,9 +571,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             frame.push_stack(std::get<InstanceData>(object->data).fields[field.slot]);
         } break;
         case op_putfield: {
-            const auto index = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "putfield", OPCODE_PRINT_PAD_WIDTH, index);
-
+            auto index = frame.pop_code_u16();
             auto& field = frame.owner().resolve_field(index, vm_.class_loader());
             if (field.is_static) {
                 throw std::runtime_error(std::format(
@@ -695,9 +584,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             std::get<InstanceData>(object->data).fields[field.slot] = value;
         } break;
         case op_invokevirtual: {
-            const auto index = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "invokevirtual", OPCODE_PRINT_PAD_WIDTH, index);
-
+            auto index = frame.pop_code_u16();
             const Method& resolved_method = frame.owner().resolve_method(index, vm_.class_loader());
 
             auto* receiver = std::get<Object*>(frame.peek_stack(resolved_method.arg_slot_widths.size() - 1));
@@ -740,9 +627,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             invoke(thread, *method);
         } break;
         case op_invokespecial: {
-            const auto index = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "invokespecial", OPCODE_PRINT_PAD_WIDTH, index);
-
+            auto index = frame.pop_code_u16();
             const Method& method = frame.owner().resolve_method(index, vm_.class_loader());
             bool is_constructor = (method.name == "<init>");
             bool is_interface = method.owner.is_interface();
@@ -754,9 +639,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             invoke(thread, method);
         } break;
         case op_invokestatic: {
-            const auto index = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "invokestatic", OPCODE_PRINT_PAD_WIDTH, index);
-
+            auto index = frame.pop_code_u16();
             const Method& method = frame.owner().resolve_method(index, vm_.class_loader());
             if (!method.is_static) {
                 throw std::runtime_error(std::format(
@@ -774,9 +657,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         } break;
 
         case op_new: {
-            const auto index = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "new", OPCODE_PRINT_PAD_WIDTH, index);
-
+            auto index = frame.pop_code_u16();
             Class& target = frame.owner().resolve_class(index, vm_.class_loader());
             if (target.needs_initialization()) {
                 frame.set_pc(last_pc);
@@ -789,17 +670,13 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         } break;
         case op_newarray: {
             auto type = frame.pop_code_u8();
-            std::println("{:{}} {:02X}", "newarray", OPCODE_PRINT_PAD_WIDTH, type);
-
             auto count = std::get<int32_t>(frame.pop_stack());
             Object* array =
                 vm_.heap().new_primitive_array(static_cast<PrimitiveArrayData::ElementType>(type), count);
             frame.push_stack(array);
         } break;
         case op_anewarray: {
-            const auto index = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "anewarray", OPCODE_PRINT_PAD_WIDTH, index);
-
+            auto index = frame.pop_code_u16();
             Class& target = frame.owner().resolve_class(index, vm_.class_loader());
 
             auto count = std::get<int32_t>(frame.pop_stack());
@@ -807,8 +684,6 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             frame.push_stack(array);
         } break;
         case op_arraylength: {
-            std::println("{:{}}", "arraylength", OPCODE_PRINT_PAD_WIDTH);
-
             auto* reference = std::get<Object*>(frame.pop_stack());
             if (reference == nullptr) {
                 // In a complete VM this would raise NullPointerException.
@@ -830,18 +705,52 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         } break;
 
         case op_checkcast: {
-            const auto index = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "checkcast", OPCODE_PRINT_PAD_WIDTH, index);
-
+            auto index = frame.pop_code_u16();
             Class& target = frame.owner().resolve_class(index, vm_.class_loader());
             // NOOP for now but resolves a class
         } break;
 
-        case op_multianewarray: {
-            const auto index = frame.pop_code_u16();
-            auto dimensions = frame.pop_code_u8();
-            std::println("{:{}} {:04X} {}", "multianewarray", OPCODE_PRINT_PAD_WIDTH, index, dimensions);
+        case op_monitorenter: {
+            auto* reference = std::get<Object*>(frame.pop_stack());
+            if (reference == nullptr) {
+                // In a complete VM this would raise NullPointerException.
+                throw std::runtime_error("monitorenter: object is null");
+            }
+            
+            if (reference->monitor.owner == nullptr) {
+                reference->monitor.owner = &thread;
+                reference->monitor.recursion_count = 1;
+            }
+            else if (reference->monitor.owner == &thread) {
+                reference->monitor.recursion_count++;
+            }
+            else {
+                // In a complete VM this would block the thread until the monitor is available.
+                throw std::runtime_error("monitorenter: monitor is already owned by another thread");
+            }
+        } break;
+        case op_monitorexit: {
+            auto* reference = std::get<Object*>(frame.pop_stack());
+            if (reference == nullptr) {
+                // In a complete VM this would raise NullPointerException.
+                throw std::runtime_error("monitorexit: object is null");
+            }
 
+            if (reference->monitor.owner == &thread) {
+                reference->monitor.recursion_count--;
+                if (reference->monitor.recursion_count == 0) {
+                    reference->monitor.owner = nullptr;
+                }
+            }
+            else {
+                // In a complete VM this would raise IllegalMonitorStateException.
+                throw std::runtime_error("monitorexit: monitor is not owned by the current thread");
+            }
+        } break;
+
+        case op_multianewarray: {
+            auto index = frame.pop_code_u16();
+            auto dimensions = frame.pop_code_u8();
             if (dimensions < 1) {
                 throw std::runtime_error("multianewarray: dimensions must be at least 1");
             }
@@ -877,16 +786,14 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             frame.push_stack(array);
         } break;
         case op_ifnull: {
-            const auto offset = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "ifnull", OPCODE_PRINT_PAD_WIDTH, offset);
+            auto offset = frame.pop_code_u16();
             auto* reference = std::get<Object*>(frame.pop_stack());
             if (reference == nullptr) {
                 frame.branch(offset - 3); // -3 to account for the opcode and offset bytes
             }
         } break;
         case op_ifnonnull: {
-            const auto offset = frame.pop_code_u16();
-            std::println("{:{}} {:04X}", "ifnonnull", OPCODE_PRINT_PAD_WIDTH, offset);
+            auto offset = frame.pop_code_u16();
             auto* reference = std::get<Object*>(frame.pop_stack());
             if (reference != nullptr) {
                 frame.branch(offset - 3); // -3 to account for the opcode and offset bytes
@@ -904,7 +811,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
 void Interpreter::invoke(Thread& thread, const Method& method) {
     if (method.is_native) {
         std::println(
-            "{:>{}}Interpreter: executing native {}.{}{}", "", indent, method.owner.this_name(), method.name, method.descriptor);
+            "Interpreter: executing native {}.{}{}", method.owner.this_name(), method.name, method.descriptor);
         if (method.native_callback) {
             (*(method.native_callback))(vm_, thread.current_frame());
         }
