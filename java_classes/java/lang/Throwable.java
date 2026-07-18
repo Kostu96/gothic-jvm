@@ -7,7 +7,13 @@ public class Throwable {
     }
 
     public Throwable(String message) {
-        // TODO(Kostu): impl
+        this.message = message;
     }
+
+    public String getMessage() {
+        return message;
+    }
+
+    private String message;
 
 }

@@ -68,3 +68,8 @@ void VM::run() {
         }
     }
 }
+
+Thread& VM::create_thread() {
+    threads_.emplace_back(std::make_unique<Thread>());
+    return *threads_.back();
+}

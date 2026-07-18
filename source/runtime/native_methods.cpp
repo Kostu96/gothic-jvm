@@ -7,6 +7,8 @@
 #include <SDL3/SDL_surface.h>
 #include <SDL3/SDL_render.h>
 
+#include <stb/stb_image.h>
+
 #include <chrono>
 #include <print>
 
@@ -29,6 +31,16 @@ void com_kostu96_gjvm_ResourceInputStream_read(VM& vm, Thread& thread) {
     auto& stream_native = std::get<ResourceInputStreamNativeData>(stream_instance.native_payload);
 
     thread.current_frame().push_stack(static_cast<int32_t>(stream_native.buffer[stream_native.position++]));
+}
+
+void java_lang_Class_forName(VM& vm, Thread& thread) {
+    auto& name_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& name_native = std::get<StringNativeData>(name_instance.native_payload);
+    std::string name_copy = name_native.value;
+    std::replace(name_copy.begin(), name_copy.end(), '.', '/');
+    Class& cls = vm.class_loader().load(name_copy);
+    Object* cls_obj = vm.heap().class_object_for(cls);
+    thread.current_frame().push_stack(cls_obj);
 }
 
 void java_lang_Class_getName(VM& vm, Thread& thread) {
@@ -156,8 +168,12 @@ void java_lang_System_currentTimeMillis(VM& vm, Thread& thread) {
 }
 
 void java_lang_Thread_start(VM& vm, Thread& thread) {
-    auto& thread_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
-    // TODO(Kostu): implement thread start
+    auto thread_obj = thread.current_frame().pop_stack();
+    auto& thread_instance = std::get<InstanceData>(std::get<Object*>(thread_obj)->data);
+    
+    auto& new_thread = vm.create_thread();
+    auto run_method = thread_instance.type.find_method("run", "()V");
+    new_thread.push_frame(*run_method, std::span{ &thread_obj, 1 });
 }
 
 void javax_microedition_lcdui_Canvas_getHeight(VM& vm, Thread& thread) {
@@ -226,6 +242,33 @@ void javax_microedition_lcdui_Graphics_init(VM& vm, Thread& thread) {
         .sdl_surface = img_native.sdl_surface
     };
     gfx_instance.native_payload = native_data;
+}
+
+void javax_microedition_lcdui_Image_createImage(VM& vm, Thread& thread) {
+    auto& stream_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& stream_native = std::get<ResourceInputStreamNativeData>(stream_instance.native_payload);
+
+    int width, height, channels;
+    auto pixels = stbi_load_from_memory(
+        stream_native.buffer.data(), static_cast<int>(stream_native.buffer.size()), &width, &height, &channels, 4);
+
+    for (int i = 0; i < width * height; ++i) {
+        uint8_t* pixel = reinterpret_cast<uint8_t*>(pixels) + i * 4;
+        // Swap RGBA to ARGB:
+        std::swap(pixel[0], pixel[3]); // R <-> A AGBR
+        std::swap(pixel[1], pixel[3]); // G <-> R ARBG
+        std::swap(pixel[2], pixel[3]); // B <-> G ARGB
+    }
+
+    ImageNativeData native_data{
+        .sdl_surface = SDL_CreateSurfaceFrom(width, height, SDL_PIXELFORMAT_ARGB8888, pixels, width * 4)
+    };
+
+    auto* img_obj = vm.heap().new_instance(vm.class_loader().load("javax/microedition/lcdui/Image"));
+    auto& img_instance = std::get<InstanceData>(img_obj->data);
+    img_instance.native_payload = native_data;
+
+    thread.current_frame().push_stack(img_obj);
 }
 
 void javax_microedition_lcdui_Image_getRGB(VM& vm, Thread& thread) {
@@ -344,6 +387,7 @@ NativeMethods::NativeMethods() {
         { "com/kostu96/gjvm/ResourceInputStream.read()I",
            com_kostu96_gjvm_ResourceInputStream_read },
 
+        { "java/lang/Class.forName(Ljava/lang/String;)Ljava/lang/Class;", java_lang_Class_forName },
         { "java/lang/Class.getName()Ljava/lang/String;", java_lang_Class_getName },
         { "java/lang/Object.getClass()Ljava/lang/Class;", java_lang_Object_getClass },
         { "java/lang/String.charAt(I)C", java_lang_String_charAt },
@@ -365,6 +409,8 @@ NativeMethods::NativeMethods() {
         { "javax/microedition/lcdui/Graphics.fillRect(IIII)V", javax_microedition_lcdui_Graphics_fillRect },
         { "javax/microedition/lcdui/Graphics.init(Ljavax/microedition/lcdui/Image;)V",
            javax_microedition_lcdui_Graphics_init },
+        { "javax/microedition/lcdui/Image.createImage(Ljava/io/InputStream;)Ljavax/microedition/lcdui/Image;",
+           javax_microedition_lcdui_Image_createImage },
         { "javax/microedition/lcdui/Image.getRGB([IIIIIII)V", javax_microedition_lcdui_Image_getRGB },
         { "javax/microedition/lcdui/Image.init(II)V", javax_microedition_lcdui_Image_init },
         { "javax/microedition/rms/RecordStore.addRecord([BII)I", javax_microedition_rms_RecordStore_addRecord },

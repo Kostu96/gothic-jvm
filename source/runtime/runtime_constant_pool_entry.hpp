@@ -11,7 +11,6 @@ class Runtime;
 struct Object;
 struct Field;
 struct Method;
-struct InterfaceMethod;
 
 struct RuntimeIntegerInfo {};
 
@@ -34,7 +33,7 @@ struct RuntimeMethodRefInfo {
 };
 
 struct RuntimeInterfaceMethodRefInfo {
-    InterfaceMethod* resolved = nullptr;
+    const Method* resolved = nullptr;
 };
 
 using RuntimeConstantPoolEntry = std::variant<

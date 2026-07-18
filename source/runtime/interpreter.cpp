@@ -181,7 +181,16 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             }
             frame.push_stack(array->elements[index]);
         } break;
-
+        case op_baload: {
+            auto index = std::get<int32_t>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
+            auto* array = reference ? std::get_if<PrimitiveArrayData>(&reference->data) : nullptr;
+            if (array == nullptr) {
+                // In a complete VM a null reference would raise NullPointerException.
+                throw std::runtime_error("baload: object is not an array reference");
+            }
+            frame.push_stack(array->get(index));
+        } break;
         case op_caload: {
             auto index = std::get<int32_t>(frame.pop_stack());
             auto* reference = std::get<Object*>(frame.pop_stack());
@@ -324,6 +333,11 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             auto value1 = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(value1 + value2);
         } break;
+        case op_ladd: {
+            auto value2 = std::get<int64_t>(frame.pop_stack());
+            auto value1 = std::get<int64_t>(frame.pop_stack());
+            frame.push_stack(value1 + value2);
+        } break;
 
         case op_isub: {
             auto value2 = std::get<int32_t>(frame.pop_stack());
@@ -409,6 +423,11 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         case op_i2s: {
             auto value = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(static_cast<int32_t>(static_cast<int16_t>(value)));
+        } break;
+        case op_lcmp: {
+            auto value2 = std::get<int64_t>(frame.pop_stack());
+            auto value1 = std::get<int64_t>(frame.pop_stack());
+            frame.push_stack((value1 > value2) - (value1 < value2));
         } break;
 
         case op_ifeq: {
@@ -608,45 +627,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         case op_invokevirtual: {
             auto index = frame.pop_code_u16();
             const Method& resolved_method = frame.owner().resolve_method(index, vm_.class_loader());
-
-            auto* receiver = std::get<Object*>(frame.peek_stack(resolved_method.arg_slot_widths.size() - 1));
-            if (receiver == nullptr) {
-                // In a complete VM this would raise NullPointerException.
-                throw std::runtime_error(std::format(
-                    "invokevirtual: null receiver for {}.{}{}",
-                    resolved_method.owner.this_name(), resolved_method.name, resolved_method.descriptor));
-            }
-
-            Class* receiver_class = nullptr;
-            if (auto* instance = std::get_if<InstanceData>(&receiver->data)) {
-                receiver_class = &instance->type;
-            }
-            else if (std::holds_alternative<ClassMirrorData>(receiver->data)) {
-                receiver_class = &vm_.class_loader().load("java/lang/Class");
-            }
-            else {
-                throw std::runtime_error("invokevirtual: receiver is not an instance");
-            }
-
-            auto find_method_in_superclasses = [&](Class* cls) -> const Method* {
-                while (cls != nullptr) {
-                    const Method* method = cls->find_method(resolved_method.name, resolved_method.descriptor);
-                    if (method != nullptr) {
-                        return method;
-                    }
-                    cls = cls->super();
-                }
-                return nullptr;
-            };
-            const Method* method = find_method_in_superclasses(receiver_class);
-            if (method == nullptr) {
-                // In a complete VM this would raise NoSuchMethodError / AbstractMethodError.
-                throw std::runtime_error(std::format(
-                    "invokevirtual: no method {}.{}{}",
-                    resolved_method.owner.this_name(), resolved_method.name, resolved_method.descriptor));
-            }
-
-            invoke(thread, *method);
+            virtual_dispatch(thread, resolved_method);
         } break;
         case op_invokespecial: {
             auto index = frame.pop_code_u16();
@@ -676,6 +657,13 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             else {
                 invoke(thread, method);
             }
+        } break;
+        case op_invokeinterface: {
+            auto index = frame.pop_code_u16();
+            auto count = frame.pop_code_u8();
+            auto reserved = frame.pop_code_u8(); // reserved byte, should be 0
+            const Method& resolved_method = frame.owner().resolve_interface_method(index, vm_.class_loader());
+            virtual_dispatch(thread, resolved_method);
         } break;
 
         case op_new: {
@@ -839,6 +827,48 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             dispatch_pending_exception(thread);
         }
     }
+}
+
+void Interpreter::virtual_dispatch(Thread& thread, const Method& resolved_method) {
+    auto& frame = thread.current_frame();
+    auto* receiver = std::get<Object*>(frame.peek_stack(resolved_method.arg_slot_widths.size() - 1));
+    if (receiver == nullptr) {
+        // In a complete VM this would raise NullPointerException.
+        throw std::runtime_error(std::format(
+            "Interpreter: null receiver for {}.{}{}",
+            resolved_method.owner.this_name(), resolved_method.name, resolved_method.descriptor));
+    }
+
+    Class* receiver_class = nullptr;
+    if (auto* instance = std::get_if<InstanceData>(&receiver->data)) {
+        receiver_class = &instance->type;
+    }
+    else if (std::holds_alternative<ClassMirrorData>(receiver->data)) {
+        receiver_class = &vm_.class_loader().load("java/lang/Class");
+    }
+    else {
+        throw std::runtime_error("Interpreter: receiver is not an instance");
+    }
+
+    auto find_method_in_superclasses = [&](Class* cls) -> const Method* {
+        while (cls != nullptr) {
+            const Method* method = cls->find_method(resolved_method.name, resolved_method.descriptor);
+            if (method != nullptr) {
+                return method;
+            }
+            cls = cls->super();
+        }
+        return nullptr;
+        };
+    const Method* method = find_method_in_superclasses(receiver_class);
+    if (method == nullptr) {
+        // In a complete VM this would raise NoSuchMethodError / AbstractMethodError.
+        throw std::runtime_error(std::format(
+            "Interpreter: no method {}.{}{}",
+            resolved_method.owner.this_name(), resolved_method.name, resolved_method.descriptor));
+    }
+
+    invoke(thread, *method);
 }
 
 void Interpreter::invoke(Thread& thread, const Method& method) {

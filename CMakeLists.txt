@@ -58,14 +58,19 @@ set(APP_LIB_SOURCES
     "source/runtime/vm.cpp"
     "source/utils/binary_reader.cpp"
     "source/utils/binary_reader.hpp"
+    "third_party/stb/stb_image.h"
+    "third_party/stb/stb_impl.cpp"
 )
 
 add_library(app_lib STATIC ${APP_LIB_SOURCES})
 target_compile_features(app_lib PUBLIC cxx_std_23)
-target_include_directories(app_lib PUBLIC source)
+target_include_directories(app_lib PUBLIC
+    source
+    third_party
+)
 target_link_libraries(app_lib PUBLIC SDL3::SDL3)
 
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/source PREFIX source FILES ${APP_LIB_SOURCES})
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${APP_LIB_SOURCES})
 
 add_executable(app "source/main.cpp")
 target_link_libraries(app PRIVATE app_lib)

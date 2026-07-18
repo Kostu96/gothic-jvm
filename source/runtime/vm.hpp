@@ -31,6 +31,8 @@ public:
     Heap& heap() noexcept { return heap_; }
     RecordStoreManager& record_store_manager() noexcept { return record_store_manager_; }
 
+    Thread& create_thread();
+
     void request_stop() noexcept { stop_requested_.store(true, std::memory_order_relaxed); }
     bool stop_requested() const noexcept { return stop_requested_.load(std::memory_order_relaxed); }
 

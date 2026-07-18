@@ -60,6 +60,7 @@ public:
     int64_t constant_pool_long(uint16_t index) const { return constant_pool_at<LongInfo>(index).value; }
     FieldRefInfo constant_pool_field_ref_info(uint16_t index) const { return constant_pool_at<FieldRefInfo>(index); }
     MethodRefInfo constant_pool_method_ref_info(uint16_t index) const { return constant_pool_at<MethodRefInfo>(index); }
+    InterfaceMethodRefInfo constant_pool_interface_method_ref_info(uint16_t index) const { return constant_pool_at<InterfaceMethodRefInfo>(index); }
 
     std::string_view get_class_name(uint16_t constant_pool_index) const;
     std::string_view get_string(uint16_t constant_pool_index) const;

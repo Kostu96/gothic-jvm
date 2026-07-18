@@ -6,6 +6,7 @@ set(JAVA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/com/nokia/mid/ui/FullCanvas.java
 
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Class.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/ClassNotFoundException.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Exception.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Integer.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Object.java

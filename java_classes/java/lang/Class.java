@@ -14,7 +14,7 @@ import java.io.*;
  */
 public final class Class {
 
-    //public static native Class forName(String className) throws ClassNotFoundException;
+    public static native Class forName(String name) throws ClassNotFoundException;
 
     public native String getName();
 

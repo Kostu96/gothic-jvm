@@ -99,6 +99,9 @@ Class::Class(const char* filename, ClassLoader& class_loader) :
             else if constexpr (std::is_same_v<T, MethodRefInfo>) {
                 runtime_constant_pool_[i] = RuntimeMethodRefInfo{};
             }
+            else if constexpr (std::is_same_v<T, InterfaceMethodRefInfo>) {
+                runtime_constant_pool_[i] = RuntimeInterfaceMethodRefInfo{};
+            }
         }, class_file_->constant_pool()[i]);
     }
 
@@ -334,30 +337,7 @@ const Method& Class::resolve_method(uint16_t index, ClassLoader& class_loader) {
             return nullptr;
         };
 
-        auto find_method_in_superinterfaces = [&](this const auto& self, Class* interface) -> const Method* {
-            const Method* method = interface->find_method(name_and_type.first, name_and_type.second);
-            if (method != nullptr) {
-                return method;
-            }
-            for (Class* super_interface : interface->interfaces_) {
-                method = self(super_interface);
-                if (method != nullptr) {
-                    return method;
-                }
-            }
-            return nullptr;
-        };
-
         const Method* method = find_method_in_superclasses(&method_class);
-        if (method == nullptr) {
-            for (Class* interface : method_class.interfaces_) {
-                method = find_method_in_superinterfaces(interface);
-                if (method != nullptr) {
-                    break;
-                }
-            }
-        }
-
         if (method == nullptr) {
             throw std::runtime_error(std::format("Class: method {}.{}{} not found.",
                 method_class.this_name(), name_and_type.first, name_and_type.second));
@@ -367,6 +347,44 @@ const Method& Class::resolve_method(uint16_t index, ClassLoader& class_loader) {
     }
 
     return *rt_method_ref_info->resolved;
+}
+
+const Method& Class::resolve_interface_method(uint16_t index, ClassLoader& class_loader) {
+    auto rt_interface_method_ref_info = std::get_if<RuntimeInterfaceMethodRefInfo>(&runtime_constant_pool_[index]);
+    if (!rt_interface_method_ref_info) {
+        throw std::runtime_error("Class: constant pool entry at index " +
+            std::to_string(index) + " is not an inteface method reference");
+    }
+
+    if (!rt_interface_method_ref_info->resolved) {
+        auto interface_method_ref_info = class_file_->constant_pool_interface_method_ref_info(index);
+        auto name_and_type = class_file_->get_name_and_type(interface_method_ref_info.name_and_type_index);
+        auto& method_interface = resolve_class(interface_method_ref_info.class_index, class_loader);
+
+        auto find_method_in_superinterfaces = [&](this const auto& self, Class& interface) -> const Method* {
+            const Method* method = interface.find_method(name_and_type.first, name_and_type.second);
+            if (method != nullptr) {
+                return method;
+            }
+            for (Class* super_interface : interface.interfaces_) {
+                method = self(*super_interface);
+                if (method != nullptr) {
+                    return method;
+                }
+            }
+            return nullptr;
+        };
+
+        const Method* method = find_method_in_superinterfaces(method_interface);
+        if (method == nullptr) {
+            throw std::runtime_error(std::format("Class: interface method {}.{}{} not found.",
+                method_interface.this_name(), name_and_type.first, name_and_type.second));
+        }
+
+        rt_interface_method_ref_info->resolved = method;
+    }
+
+    return *rt_interface_method_ref_info->resolved;
 }
 
 Field* Class::find_field(std::string_view name, std::string_view descriptor) noexcept {

@@ -1,9 +1,19 @@
 package javax.microedition.lcdui;
 
+import java.io.*;
+
 public class Image {
+
+    public static native Image createImage(InputStream stream) throws IOException;
 
     public static Image createImage(int width, int height) {
         return new Image(width, height);
+    }
+
+    public static Image createImage(String name) throws IOException {
+        // NOTE(Kostu): not exactly right but works because there is one class loader with shared classpaths
+        InputStream stream = Image.class.getResourceAsStream(name);
+        return createImage(stream);
     }
 
     public Graphics getGraphics() {

@@ -19,6 +19,7 @@ public:
     Interpreter(const Interpreter&) = delete;
     Interpreter& operator=(const Interpreter&) = delete;
 private:
+    void virtual_dispatch(Thread& thread, const Method& resolved_method);
     void invoke(Thread& thread, const Method& method);
     void dispatch_pending_exception(Thread& thread);
 

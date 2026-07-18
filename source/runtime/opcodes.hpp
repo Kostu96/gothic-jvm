@@ -43,7 +43,7 @@ constexpr uint8_t op_aload_3 = 0x2D;
 constexpr uint8_t op_iaload = 0x2E;
 
 constexpr uint8_t op_aaload = 0x32;
-
+constexpr uint8_t op_baload = 0x33;
 constexpr uint8_t op_caload = 0x34;
 
 constexpr uint8_t op_istore = 0x36;
@@ -71,6 +71,7 @@ constexpr uint8_t op_dup = 0x59;
 constexpr uint8_t op_dup2 = 0x5C;
 
 constexpr uint8_t op_iadd = 0x60;
+constexpr uint8_t op_ladd = 0x61;
 
 constexpr uint8_t op_isub = 0x64;
 
@@ -96,6 +97,7 @@ constexpr uint8_t op_iinc = 0x84;
 constexpr uint8_t op_i2b = 0x91;
 
 constexpr uint8_t op_i2s = 0x93;
+constexpr uint8_t op_lcmp = 0x94;
 
 constexpr uint8_t op_ifeq = 0x99;
 constexpr uint8_t op_ifne = 0x9A;
@@ -125,6 +127,7 @@ constexpr uint8_t op_putfield = 0xB5;
 constexpr uint8_t op_invokevirtual = 0xB6;
 constexpr uint8_t op_invokespecial = 0xB7;
 constexpr uint8_t op_invokestatic = 0xB8;
+constexpr uint8_t op_invokeinterface = 0xB9;
 
 constexpr uint8_t op_new = 0xBB;
 constexpr uint8_t op_newarray = 0xBC;

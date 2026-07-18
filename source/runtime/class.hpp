@@ -83,6 +83,7 @@ public:
     Class& resolve_class(uint16_t index, ClassLoader& class_loader);
     Field& resolve_field(uint16_t index, ClassLoader& class_loader);
     const Method& resolve_method(uint16_t index, ClassLoader& class_loader);
+    const Method& resolve_interface_method(uint16_t index, ClassLoader& class_loader);
 
     Field* find_field(std::string_view name, std::string_view descriptor) noexcept;
     const Method* find_method(std::string_view name, std::string_view descriptor) const noexcept;
