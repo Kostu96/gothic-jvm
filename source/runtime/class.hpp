@@ -69,6 +69,7 @@ public:
 
     bool treat_super_specially() const noexcept { return treat_super_specially_; }
     bool is_interface() const noexcept { return is_interface_; }
+    bool is_subclass_of(const Class& other) const noexcept;
 
     Class* super() const { return super_; }
     Class* component_type() const noexcept { return component_type_; }

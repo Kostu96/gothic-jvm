@@ -53,10 +53,15 @@ The classpath is assembled from the **current working directory**, not `resource
 
 On-disk assets:
 - `java_classes/` (repo root) — runtime bootstrap classes kept as **`.java` sources**, compiled
-  by CMake. The 18 compiled sources: `com/kostu96/gjvm/ResourceInputStream`,
-  `com/nokia/mid/ui/FullCanvas`, `java/lang/{Class,Integer,Object,Runnable,String,StringBuffer,System,Thread}`,
-  `javax/microedition/lcdui/{Canvas,Display,Displayable,Font,Graphics,Image}`,
-  `javax/microedition/midlet/{MIDlet,MIDletStateChangeException}`.
+  by CMake. The 31 explicitly listed sources: `com/kostu96/gjvm/ResourceInputStream`,
+  `com/nokia/mid/ui/FullCanvas`,
+  `java/lang/{Class,Exception,Integer,Object,Runnable,String,StringBuffer,System,Thread,Throwable}`,
+  `javax/microedition/lcdui/{Display,Command,CommandListener,Displayable,Font,Graphics,Image}`,
+  `javax/microedition/media/{Control,Controllable,MediaException,Player,PlayerListener}`,
+  `javax/microedition/midlet/{MIDlet,MIDletStateChangeException}`,
+  `javax/microedition/rms/{RecordStore,RecordStoreException,RecordStoreFullException,RecordStoreNotFoundException,RecordStoreNotOpenException}`.
+  `javax/microedition/lcdui/Canvas` is **not** in that list yet is still compiled — javac pulls it
+  in implicitly as the `FullCanvas` superclass.
 - `resources/classes/` — vendored J2ME/MIDP/CLDC class library (real SDK `.class` files:
   `java.lang.*`, `java.io.*`, `java.util.*`, `javax.microedition.*`, `com.sun.*`). Not on the
   default runtime classpath; it is the source pool for the extra dependency classes that must
@@ -66,8 +71,8 @@ On-disk assets:
   `icon.png`/`s00.png`/`s01.png`, `META-INF/`.
 - `build/java_classes/` — javac output for `<cwd>/java_classes` lookups when running from
   `build/`. Besides the compiled sources it also holds vendored dependency classes
-  (`java/io/*`, `java/util/*`, `javax/microedition/media/*`) that the javac step does **not**
-  produce. `build/gothic3thebeginning/` mirrors the MIDlet data.
+  (`java/io/*`, `java/util/*`) that the javac step does **not** produce (`javax/microedition/media/*`
+  is now compiled from `java_classes/`). `build/gothic3thebeginning/` mirrors the MIDlet data.
 
 ## Directory layout
 
@@ -80,6 +85,8 @@ source/
     class_loader.{hpp,cpp}      # ClassLoader: classpath resolve + cache; array classes via load_array
   platform/
     display.{hpp,cpp}           # Display: owns SDL_Window + SDL_Renderer; process_events/clear/present; width/height
+    record_store.{hpp,cpp}      # RecordStore: named in-memory record list (add_record/size) backing MIDP RMS
+    record_store_manager.{hpp,cpp} # RecordStoreManager: name -> RecordStore map; open_record_store(name, create)
   runtime/
     vm.{hpp,cpp}                # VM: owns NativeMethods/ClassLoader/Heap/Interpreter + threads_; bootstrap state machine
     thread.{hpp,cpp}            # Thread: a green thread = an explicit call stack (vector<Frame>)
@@ -135,6 +142,8 @@ build/                          # generated VS solution/projects + <cwd> copies 
    Method&)` runs a native (`Method::native_callback` with `thread.current_frame()`), or for
    bytecode pops `arg_slot_widths.size()` operand entries and `Thread::push_frame`s a new `Frame`.
    Returns (`ireturn`/`areturn`/`return`) `pop_frame` and push any result onto the caller's stack.
+   After each instruction it dispatches any pending exception (see
+   [Exception handling](#exception-handling)).
 5. Class init is stackless and lazy (see [Class initialization](#class-initialization)).
 6. `ClassLoader::load` checks a cache, routes `[`-prefixed names to `load_array`, otherwise
    resolves `binary/name` -> `<entry>/binary/name.class` across classpath entries and constructs
@@ -148,9 +157,11 @@ build/                          # generated VS solution/projects + <cwd> copies 
   recursion_count}` (used by `monitorenter`/`monitorexit`).
   - `InstanceData`: `Class& type` + `vector<Value> fields` (by field slot) + `native_payload`
     (`NativePayload = variant<monostate, ResourceInputStreamNativeData, StringNativeData,
-    ImageNativeData, GraphicsNativeData>`). `String`/`StringBuffer` carry `StringNativeData{value}`
-    (raw `std::string`), `ResourceInputStream` carries `{buffer, position}`, `Image` carries an
-    `SDL_Surface*`, `Graphics` carries an `SDL_Renderer*` + `SDL_Surface*`.
+    ImageNativeData, GraphicsNativeData, RecordStoreNativeData>`). `String`/`StringBuffer` carry
+    `StringNativeData{value}` (raw `std::string`), `ResourceInputStream` carries `{buffer,
+    position}`, `Image` carries an `SDL_Surface*`, `Graphics` carries an `SDL_Renderer*` +
+    `SDL_Surface*`, `RecordStore` carries a non-owning `RecordStore*` (into the
+    `RecordStoreManager`).
   - `PrimitiveArrayData`: variant of typed element vectors (boolean/byte→uint8, char→char16,
     short→int16, int→int32, long→int64, float, double) with `ElementType` tags matching JVM
     `newarray` atype codes (4..11); `get`/`set` widen to `Value`.
@@ -167,7 +178,8 @@ build/                          # generated VS solution/projects + <cwd> copies 
   walk the full superclass + superinterface hierarchy), `resolve_constant(index, class_loader,
   heap)` (ints/longs re-read from the `ClassFile`; `String`s interned via
   `Heap::new_interned_string`; `Class` constants -> heap mirror). Predicates/accessors: `kind()`,
-  `is_interface()`, `treat_super_specially()`, `component_type()`, `this_name()`,
+  `is_interface()`, `is_subclass_of(other)` (walks the `super_` chain; used by exception handler
+  matching), `treat_super_specially()`, `component_type()`, `this_name()`,
   `super()`/`super_name()`, `instance_field_count()`. Init API: `needs_initialization()` (true
   only when `Loaded`), `ensure_initialized(Thread&)`, `set_initialized()`.
 - **Method**: `owner`, name, descriptor, `arg_slot_widths` (per-argument local-slot widths incl.
@@ -183,16 +195,22 @@ build/                          # generated VS solution/projects + <cwd> copies 
   `java/lang/Class` mirror per `Class`). Requires the String class registered via
   `set_string_class` before any string is interned.
 - **Frame** (movable): `owner()`/`method()`, `locals()`, `operand_stack()`, `pc()`/`set_pc(pc)`
-  (jumps use `branch(offset)`; `set_pc` rewinds a whole instruction for lazy class init),
-  `pop_code_u8/u16`, `push_stack`/`pop_stack`/`peek_stack(index = 0)` (depth-indexed from top).
-  Ctor sizes `locals` to `max_locals`, reserves `max_stack`.
+  (jumps use `branch(offset)`; `set_pc` also used to jump to an exception `handler_pc`),
+  `record_last_pc()`/`last_pc()` (the interpreter snapshots the current pc before each instruction;
+  used by lazy class init and exception dispatch to locate the faulting instruction) and
+  `rewind_pc()` (rewind pc to `last_pc_`, i.e. the start of the current instruction, for lazy class
+  init), `pop_code_u8/u16`, `push_stack`/`pop_stack`/`peek_stack(index = 0)` (depth-indexed from
+  top). Ctor sizes `locals` to `max_locals`, reserves `max_stack`.
 - **Thread** (`thread.{hpp,cpp}`): a green thread = explicit JVM call stack. Owns
   `std::vector<Frame> frames_`; `current_frame()`, `push_frame(method, span<const Value> args)`
   (lays `args` into locals via `arg_slot_widths`), `pop_frame()`, `is_terminated()`
-  (`frames_.empty()`). Because `Frame`s live in a `vector`, `push_frame` can reallocate and
-  invalidate a held `Frame&` — the interpreter re-fetches `current_frame()` each instruction, and
-  init-triggering opcodes rewind pc *before* calling `ensure_initialized`. The `VM` owns
-  `threads_` (a `vector<unique_ptr<Thread>>`) but only creates/drives one; there is no scheduler.
+  (`frames_.empty()`). Also carries a single **pending exception** slot (`Object*`):
+  `set_pending_exception`/`pending_exception`/`has_pending_exception`/`clear_pending_exception`
+  (see [Exception handling](#exception-handling)). Because `Frame`s live in a `vector`,
+  `push_frame` can reallocate and invalidate a held `Frame&` — the interpreter re-fetches
+  `current_frame()` each instruction, and init-triggering opcodes rewind pc *before* calling
+  `ensure_initialized`. The `VM` owns `threads_` (a `vector<unique_ptr<Thread>>`) but only
+  creates/drives one; there is no scheduler.
 - **Runtime constant pool** (`runtime_constant_pool_entry.hpp`): `RuntimeClassInfo`,
   `RuntimeFieldRefInfo`, `RuntimeMethodRefInfo`, `RuntimeStringInfo` cache the resolved pointer on
   first resolution. `RuntimeIntegerInfo`/`RuntimeLongInfo` are tags only (value re-read from the
@@ -203,6 +221,13 @@ build/                          # generated VS solution/projects + <cwd> copies 
   size. `process_events()` returns `false` on quit/close; `clear(r,g,b)`/`present()` drive the 2D
   renderer; `renderer()` exposes it. Non-owned by `VM` (a `Display*` via `set_display`), so the
   VM can run headless in tests.
+- **RecordStore / RecordStoreManager** (`platform/record_store.{hpp,cpp}`,
+  `record_store_manager.{hpp,cpp}`): the MIDP RMS backend, owned by `VM`
+  (`record_store_manager()`). `RecordStore(name)` holds a `vector<Record>` (each `Record` = a
+  `vector<uint8_t>`); `add_record(span<const uint8_t>)` appends and returns the new 1-based record
+  id, `size()` the count. `RecordStoreManager` maps `name -> RecordStore` (`unordered_map`);
+  `open_record_store(name, create_if_necessary)` returns the existing store, creates one when
+  missing and `create_if_necessary`, or `nullptr` otherwise. All in-memory; nothing is persisted.
 
 ### Windowing
 `main.cpp` constructs one stack `Display` (240x320 logical, scale 2 -> 480x640 window, title
@@ -237,7 +262,7 @@ Class init is **stackless and lazy**, driven off the running `Thread`'s frame st
 - `needs_initialization()` is true only in `InitState::Loaded`. `Initializing`/`Initialized` both
   mean "proceed"; `Failed` throws.
 - The init-triggering opcodes (`getstatic`, `putstatic`, `invokestatic`, `new`) check it and, when
-  true, `frame.set_pc(last_pc)` to rewind to the start of the current instruction, call
+  true, `frame.rewind_pc()` to rewind to the start of the current instruction, call
   `ensure_initialized(thread)`, and fall through. The instruction re-executes after init
   completes; checking before any effect keeps the retry idempotent.
 - `ensure_initialized` sets `Initializing`, pushes the `<clinit>()V` frame (or flips straight to
@@ -258,10 +283,10 @@ Loads: `iload` (0x15), `aload` (0x19), `iload_0..3` (0x1A–0x1D), `lload_0..3` 
 Stores: `istore` (0x36), `astore` (0x3A), `istore_0..3` (0x3B–0x3E), `astore_0..3` (0x4B–0x4E),
 `iastore` (0x4F), `aastore` (0x53, partial `ArrayStoreException`-style check), `bastore` (0x54),
 `castore` (0x55), `sastore` (0x56).
-Stack/math: `dup` (0x59), `dup2` (0x5C; both the category-2 long/double top and the two-slot
-category-1 forms), `iadd` (0x60), `isub` (0x64), `imul` (0x68), `idiv` (0x6C), `irem` (0x70),
-`ineg` (0x74), `ishl` (0x78), `ishr` (0x7A), `iand` (0x7E), `land` (0x7F), `ior` (0x80), `lxor`
-(0x83), `iinc` (0x84), `i2b` (0x91), `i2s` (0x93).
+Stack/math: `pop` (0x57), `dup` (0x59), `dup2` (0x5C; both the category-2 long/double top and the
+two-slot category-1 forms), `iadd` (0x60), `isub` (0x64), `imul` (0x68), `idiv` (0x6C), `irem`
+(0x70), `ineg` (0x74), `ishl` (0x78), `ishr` (0x7A), `iand` (0x7E), `land` (0x7F), `ior` (0x80),
+`lxor` (0x83), `iinc` (0x84), `i2b` (0x91), `i2s` (0x93).
 Branches: `ifeq` (0x99), `ifne` (0x9A), `iflt` (0x9B), `ifge` (0x9C), `ifle` (0x9E), `if_icmpeq`
 (0x9F), `if_icmpne` (0xA0), `if_icmplt` (0xA1), `if_icmpge` (0xA2), `if_icmpgt` (0xA3), `if_icmple`
 (0xA4), `goto` (0xA7), `ifnull` (0xC6), `ifnonnull` (0xC7).
@@ -277,6 +302,7 @@ resolved via `resolve_method`; throws for the not-yet-implemented `ACC_SUPER` su
 `needs_initialization()` and, when true, rewind pc + `ensure_initialized` instead of acting; the
 `invoke*` opcodes push a frame via the shared `Interpreter::invoke`.
 Object/array/monitor: `new` (0xBB), `newarray` (0xBC), `anewarray` (0xBD), `arraylength` (0xBE),
+`athrow` (0xBF, sets the thread's pending exception — see [Exception handling](#exception-handling)),
 `checkcast` (0xC0, resolves the class but performs no type check), `monitorenter` (0xC2)/
 `monitorexit` (0xC3) (a simple non-blocking monitor: owner `Thread*` + recursion count; throws if
 held by another thread or on null), `multianewarray` (0xC5, recursive allocation via a
@@ -289,9 +315,31 @@ Notes:
   pushes the heap `java/lang/Class` mirror.
 - The interpreter traces class loads (`ClassLoader`), frame pushes (`Thread`), and native calls
   (`invoke`) to stdout; it does **not** print a per-opcode/operand-stack trace.
-- Unknown opcodes throw `std::runtime_error`. Errors a real VM would surface as Java exceptions
-  (NPE, div-by-zero, ArrayStore, index OOB, missing field/method) are thrown as
-  `std::runtime_error`.
+- Unknown opcodes throw `std::runtime_error`. VM-internal errors a real VM would surface as Java
+  exceptions (NPE, div-by-zero, ArrayStore, index OOB, missing field/method) are still thrown as
+  `std::runtime_error`; only explicit `athrow` (and a few natives) route through the Java exception
+  machinery below.
+
+### Exception handling
+A bytecode-visible exception path exists (thrown values, handler-table dispatch), but VM-internal
+faults do **not** use it:
+- `Thread` carries one **pending exception** slot (`Object*`). `athrow` pops a reference and calls
+  `set_pending_exception` (null reference -> `std::runtime_error`); some natives set it directly
+  (e.g. `RecordStore.openRecordStore` raises `RecordStoreNotFoundException`).
+- After **every** dispatched instruction `Interpreter::run` checks `thread.has_pending_exception()`
+  and, if set, calls `dispatch_pending_exception(thread)`.
+- `dispatch_pending_exception` walks the frame stack from the top: for the current frame it scans
+  `method().exception_table` for an entry whose `[start_pc, end_pc)` covers `frame.last_pc()` and
+  whose `catch_type` matches (`catch_type == 0` is catch-all/`finally`; otherwise the entry's
+  class is resolved and matched via `exc_class.is_subclass_of(handler_type)`). On a match it clears
+  the operand stack, pushes the exception, `set_pc(handler_pc)`, clears the pending slot, and
+  returns. On no match it `pop_frame`s and continues outward.
+- If the stack drains with no handler, it throws `std::runtime_error("Uncaught exception: <name>")`,
+  which unwinds the C++ interpreter (killing the thread).
+- Caveats: no exception *object* state is populated (message/stack trace are ignored; `Throwable`'s
+  constructors are TODO stubs); superinterface handler types are matched only through `super_`
+  (`is_subclass_of` walks the superclass chain, not interfaces); there is no `NoClassDefFoundError`
+  or VM-synthesized NPE/`ArithmeticException`.
 
 ### Native callbacks
 Native bindings live in `NativeMethods` (`native_methods.{hpp,cpp}`). The `VM` owns one instance
@@ -326,6 +374,12 @@ in an anonymous namespace, named after their fully-qualified Java method. Regist
   — set the draw color from the Graphics `color:I` field, then `SDL_RenderFillRect` /
   `SDL_RenderDebugText`. The public `Graphics.drawString(...)` computes anchor offsets in Java and
   delegates to `drawStringNative`.
+- `javax/microedition/rms/RecordStore.openRecordStore(Ljava/lang/String;Z)Ljavax/microedition/rms/RecordStore;`
+  (static) — creates a `RecordStore` instance whose payload points at the
+  `RecordStoreManager`-owned store for that name; when the store is missing and `createIfNecessary`
+  is false it sets a pending `RecordStoreNotFoundException` (see [Exception handling](#exception-handling)).
+- `javax/microedition/rms/RecordStore.addRecord([BII)I` — appends `data[offset, offset+size)` to
+  the backing store and returns the new 1-based record id; `getNumRecords()I` returns the count.
 
 ## Conventions
 - Headers `.hpp`, sources `.cpp`; include via paths rooted at `source/` (e.g.
@@ -344,24 +398,29 @@ in an anonymous namespace, named after their fully-qualified Java method. Regist
   moot. No `Thread` id/state enum, ready/blocked queues, yield points, or `java/lang/Thread`
   scheduling; `Thread.start` is a no-op and `monitorenter`/`monitorexit` never block.
 - **Lazy class init caveats:** `InitState::Failed` is effectively unreachable; interfaces are not
-  initialized (only the `super_` chain); no cross-thread init locking. `VM::run`'s bootstrap
-  dereferences `find_method("<init>"/"startApp", "()V")` without a null check.
+  initialized (only the `super_` chain); no cross-thread init locking. An interface that carries a
+  `<clinit>` is rejected at parse time (`Class` throws). `VM::run`'s bootstrap dereferences
+  `find_method("<init>"/"startApp", "()V")` without a null check.
 - **Type checks not enforced:** `checkcast` resolves its target but performs no check; there is no
   `instanceof`. `aastore` does a partial element-type check.
 - **`invokespecial` `ACC_SUPER` unimplemented** (throws); `invokeinterface` is missing
   (`RuntimeInterfaceMethodRefInfo` unused).
 - **Constant pool coverage is partial:** `Float` (tag 4) and `Double` (tag 6) are not parsed and
   throw "Unsupported constant pool tag". `get_constant` only returns Integer/Long.
-- **No real exceptions:** the parsed `exception_table` is never consulted; there are no Java
-  exception objects or handler dispatch, no `NoSuchMethodError`/`AbstractMethodError` modeling.
+- **Exceptions are partial:** `athrow` and `Code` `exception_table` handler dispatch work (see
+  [Exception handling](#exception-handling)), but exception *objects* carry no state (message/stack
+  trace unset; `Throwable` ctors are stubs), handler matching walks only the superclass chain (not
+  interfaces), and VM-internal faults (NPE, div-by-zero, ArrayStore, index OOB, missing
+  method/field) still throw `std::runtime_error` instead of Java exceptions. No
+  `NoSuchMethodError`/`AbstractMethodError` modeling.
 - **No garbage collection;** the heap only grows.
 - **Unbound `native` methods** (throw "Failed to call native" if invoked):
   `java/lang/System.{arraycopy,identityHashCode,getProperty,exit,gc}`, `java/lang/Class.isInterface`,
   `java/lang/String.{replace,substring}`.
-- **The javac step compiles only the 18 listed sources.** Runtime dependency classes
-  (`java/io/*`, `java/util/*`, `javax/microedition/media/*`) are vendored copies from
-  `resources/classes/` that must sit in `build/java_classes/`; nothing in CMake copies them, so a
-  clean build tree would be missing them.
+- **The javac step compiles only the 31 listed sources** (plus `lcdui/Canvas`, pulled in
+  implicitly as `FullCanvas`'s superclass). Remaining runtime dependency classes (`java/io/*`,
+  `java/util/*`) are vendored copies from `resources/classes/` that must sit in
+  `build/java_classes/`; nothing in CMake copies them, so a clean build tree would be missing them.
 - **Dead / TODO code:** `decode_modified_utf8` in `class_file.cpp` is defined but unused;
   `Class::resolve_constant` has an unreachable fallback block after its `std::visit` return; the
   `overloaded` visitor TODO, empty `Font.init` body, commented `Graphics` translation offsets, a

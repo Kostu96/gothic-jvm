@@ -2,4 +2,18 @@ package javax.microedition.rms;
 
 public class RecordStore {
 
+    public native int
+    addRecord(byte[] data, int offset, int size) throws
+        RecordStoreNotOpenException, RecordStoreException, RecordStoreFullException;
+
+    public native int getNumRecords() throws RecordStoreNotOpenException;
+
+    public int getSizeAvailable() throws RecordStoreNotOpenException {
+        return 1024 * 1024;
+    }
+
+    public static native RecordStore
+    openRecordStore(String recordStoreName, boolean createIfNecessary) throws
+        RecordStoreException, RecordStoreFullException, RecordStoreNotFoundException;
+
 }

@@ -198,6 +198,17 @@ void Class::ensure_initialized(Thread& thread) {
     }
 }
 
+bool Class::is_subclass_of(const Class& other) const noexcept {
+    const Class* cls = this;
+    while (cls != nullptr) {
+        if (cls == &other) {
+            return true;
+        }
+        cls = cls->super_;
+    }
+    return false;
+}
+
 Value Class::resolve_constant(uint16_t index, ClassLoader& class_loader, Heap& heap) {
     return std::visit([&, this](auto&& info) -> Value {
         using T = std::decay_t<decltype(info)>;

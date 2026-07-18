@@ -19,11 +19,14 @@ The goal is to implement *just enough* of a VM to bring that MIDlet to life.
 - A stackless, budgeted bytecode interpreter — `run(thread, n)` executes up to `n` instructions
   against a thread's explicit frame stack (groundwork for cooperative green threads) — covering
   constants, loads/stores, integer/long math, branches, field access, object/array creation,
-  monitors, and `invokevirtual`/`invokespecial`/`invokestatic`.
+  monitors, `athrow`, and `invokevirtual`/`invokespecial`/`invokestatic`.
+- Bytecode-level exceptions: `athrow` plus `Code` exception-table dispatch make `try`/`catch`/
+  `finally` work (handler types are matched by walking the superclass chain). Exception objects
+  carry no message/stack-trace state yet, and VM-internal faults still surface as C++ exceptions.
 - Real `java.lang.String`/`StringBuffer` objects backed by native C++ payloads; string constants
   are interned and deduplicated.
 - A set of native methods (timing, canvas size, `getClass`, `String`/`StringBuffer` operations,
-  resource streaming, MIDP `Graphics`/`Image` drawing).
+  resource streaming, MIDP `Graphics`/`Image` drawing, and in-memory MIDP RMS record stores).
 - An SDL3 window with a 2D renderer that opens on startup. The MIDP drawing primitives
   (`Graphics.fillRect`/`drawString`, `Image` surfaces) do real work but render to **offscreen**
   surfaces that are not yet blitted to the window (which just clears each frame and handles the
@@ -126,7 +129,7 @@ Core components:
 source/
   main.cpp            # entry point
   class_loader/       # .class parsing + classpath class loading
-  platform/           # SDL3 window + 2D renderer wrapper (Display)
+  platform/           # SDL3 window + 2D renderer wrapper (Display) + in-memory MIDP RMS
   runtime/            # VM, interpreter, threads, classes, heap, objects, frames
   utils/              # big-endian binary reader
 tests/                # GoogleTest unit tests
@@ -143,9 +146,10 @@ Known gaps:
   against a thread's frame stack), but the VM drives a single main thread — there is no
   scheduler, cooperative yielding, or blocking. `java.lang.Thread.start` and the monitor opcodes
   are non-blocking stubs.
-- **JVM errors surface as C++ exceptions.** Null-pointer, divide-by-zero, array-store, and
-  out-of-bounds conditions throw `std::runtime_error` instead of Java exceptions. The parsed
-  exception table is never consulted, so `try`/`catch`/`finally` does not work.
+- **JVM-internal errors surface as C++ exceptions.** Null-pointer, divide-by-zero, array-store, and
+  out-of-bounds conditions throw `std::runtime_error` instead of Java exceptions. Explicit `athrow`
+  and the parsed exception table *do* work (`try`/`catch`/`finally` dispatch), but exception
+  objects carry no message/stack-trace state and handler matching walks only the superclass chain.
 - **No garbage collection** — the heap only grows.
 - **Partial type/opcode coverage.** Many opcodes are unimplemented (the interpreter throws on
   anything it doesn't know); `checkcast` performs no type check and there is no `instanceof`;
@@ -155,9 +159,8 @@ Known gaps:
   C++ binding yet (e.g. `System.arraycopy`, `Class.isInterface`, `String.substring`,
   `String.replace`), so calling them throws.
 - **Runtime dependency classes are vendored.** The build compiles only the `java_classes/*.java`
-  sources; other classes the MIDlet needs (`java/io/*`, `java/util/*`, `javax/microedition/media/*`)
-  come from vendored copies under `resources/classes/` and must be present in
-  `build/java_classes/` at runtime.
+  sources; other classes the MIDlet needs (`java/io/*`, `java/util/*`) come from vendored copies
+  under `resources/classes/` and must be present in `build/java_classes/` at runtime.
 - **MIDP graphics are offscreen.** `Graphics`/`Image` natives draw onto SDL surfaces that are
   never blitted to the window, so nothing is visible on screen yet.
 - **Test coverage** is limited to the binary reader.
@@ -165,7 +168,8 @@ Known gaps:
 Roadmap:
 
 - Build a cooperative scheduler over multiple green threads and wire up `java.lang.Thread`.
-- Introduce real exception objects and exception-handler-table dispatch.
+- Give exceptions real object state (messages, stack traces) and synthesize VM-level exceptions
+  (NPE, `ArithmeticException`, `ArrayStoreException`, …) instead of throwing `std::runtime_error`.
 - Implement `invokeinterface`, `super`-calls, and `checkcast`/`instanceof` checks.
 - Parse `Float`/`Double` constants and widen opcode coverage.
 - Blit the offscreen MIDP surfaces to the window and wire up the `Displayable`/`paint` model.

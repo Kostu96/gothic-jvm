@@ -12,10 +12,10 @@
 
 namespace {
 
-void com_kostu96_gjvm_ResourceInputStream_init(VM& vm, Frame& frame) {
-    auto& name_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void com_kostu96_gjvm_ResourceInputStream_init(VM& vm, Thread& thread) {
+    auto& name_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& name_native = std::get<StringNativeData>(name_instance.native_payload);
-    auto& stream_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& stream_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
 
     ResourceInputStreamNativeData native_data{
         .buffer = vm.class_loader().load_resource(name_native.value),
@@ -24,31 +24,31 @@ void com_kostu96_gjvm_ResourceInputStream_init(VM& vm, Frame& frame) {
     stream_instance.native_payload = native_data;
 }
 
-void com_kostu96_gjvm_ResourceInputStream_read(VM& vm, Frame& frame) {
-    auto& stream_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void com_kostu96_gjvm_ResourceInputStream_read(VM& vm, Thread& thread) {
+    auto& stream_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& stream_native = std::get<ResourceInputStreamNativeData>(stream_instance.native_payload);
 
-    frame.push_stack(static_cast<int32_t>(stream_native.buffer[stream_native.position++]));
+    thread.current_frame().push_stack(static_cast<int32_t>(stream_native.buffer[stream_native.position++]));
 }
 
-void java_lang_Class_getName(VM& vm, Frame& frame) {
-    auto* cls_obj = std::get<Object*>(frame.pop_stack());
+void java_lang_Class_getName(VM& vm, Thread& thread) {
+    auto* cls_obj = std::get<Object*>(thread.current_frame().pop_stack());
     auto& mirror = std::get<ClassMirrorData>(cls_obj->data);
     Class& cls = mirror.mirrored;
     Object* str_obj = vm.heap().new_interned_string(cls.this_name());
-    frame.push_stack(str_obj);
+    thread.current_frame().push_stack(str_obj);
 }
 
-void java_lang_Object_getClass(VM& vm, Frame& frame) {
-    auto& instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void java_lang_Object_getClass(VM& vm, Thread& thread) {
+    auto& instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
 
     auto* class_obj = vm.heap().class_object_for(instance.type);
-    frame.push_stack(class_obj);
+    thread.current_frame().push_stack(class_obj);
 }
 
-void java_lang_String_charAt(VM& vm, Frame& frame) {
-    auto index = std::get<int32_t>(frame.pop_stack());
-    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void java_lang_String_charAt(VM& vm, Thread& thread) {
+    auto index = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& str_native = std::get<StringNativeData>(str_instance.native_payload);
     
     if (index < 0 || index >= str_native.value.size()) {
@@ -56,13 +56,13 @@ void java_lang_String_charAt(VM& vm, Frame& frame) {
         throw std::runtime_error("charAt: index out of bounds");
     }
     auto ch = str_native.value[index];
-    frame.push_stack(static_cast<int32_t>(ch));
+    thread.current_frame().push_stack(static_cast<int32_t>(ch));
 }
 
-void java_lang_String_indexOf(VM& vm, Frame& frame) {
-    auto index = std::get<int32_t>(frame.pop_stack());
-    auto char_value = std::get<int32_t>(frame.pop_stack());
-    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void java_lang_String_indexOf(VM& vm, Thread& thread) {
+    auto index = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto char_value = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& str_native = std::get<StringNativeData>(str_instance.native_payload);
 
     int32_t result_index = -1;
@@ -72,23 +72,23 @@ void java_lang_String_indexOf(VM& vm, Frame& frame) {
             break;
         }
     }
-    frame.push_stack(result_index);
+    thread.current_frame().push_stack(result_index);
 }
 
-void java_lang_String_init_StringBuffer(VM& vm, Frame& frame) {
-    auto& buffer_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void java_lang_String_init_StringBuffer(VM& vm, Thread& thread) {
+    auto& buffer_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& buffer_native = std::get<StringNativeData>(buffer_instance.native_payload);
-    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     StringNativeData native_data;
     native_data.value = buffer_native.value;
     str_instance.native_payload = native_data;
 }
 
-void java_lang_String_init_char_array(VM& vm, Frame& frame) {
-    auto size = std::get<int32_t>(frame.pop_stack());
-    auto offset = std::get<int32_t>(frame.pop_stack());
-    auto& char_array = std::get<PrimitiveArrayData>(std::get<Object*>(frame.pop_stack())->data);
-    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void java_lang_String_init_char_array(VM& vm, Thread& thread) {
+    auto size = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto offset = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& char_array = std::get<PrimitiveArrayData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     if (offset < 0 || size < 0 || offset + size > char_array.length()) {
         // In a complete VM this would raise StringIndexOutOfBoundsException.
         throw std::runtime_error("String.init: offset and size out of bounds");
@@ -102,9 +102,9 @@ void java_lang_String_init_char_array(VM& vm, Frame& frame) {
     str_instance.native_payload = native_data;
 }
 
-void java_lang_String_lastIndexOf(VM& vm, Frame& frame) {
-    auto char_value = std::get<int32_t>(frame.pop_stack());
-    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void java_lang_String_lastIndexOf(VM& vm, Thread& thread) {
+    auto char_value = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& str_native = std::get<StringNativeData>(str_instance.native_payload);
 
     int32_t result_index = -1;
@@ -113,13 +113,13 @@ void java_lang_String_lastIndexOf(VM& vm, Frame& frame) {
             result_index = i;
         }
     }
-    frame.push_stack(result_index);
+    thread.current_frame().push_stack(result_index);
 }
 
-void java_lang_StringBuffer_append(VM& vm, Frame& frame) {
-    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void java_lang_StringBuffer_append(VM& vm, Thread& thread) {
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& str_native = std::get<StringNativeData>(str_instance.native_payload);
-    auto& buffer_instance = std::get<InstanceData>(std::get<Object*>(frame.peek_stack())->data);
+    auto& buffer_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().peek_stack())->data);
     auto& buffer_native = std::get<StringNativeData>(buffer_instance.native_payload);
 
     buffer_native.value.append(str_native.value);
@@ -127,48 +127,48 @@ void java_lang_StringBuffer_append(VM& vm, Frame& frame) {
     buffer_instance.fields[size_field->slot] = static_cast<int32_t>(buffer_native.value.size());
 }
 
-void java_lang_StringBuffer_init(VM& vm, Frame& frame) {
-    auto& buffer_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void java_lang_StringBuffer_init(VM& vm, Thread& thread) {
+    auto& buffer_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
 
 
     StringNativeData native_data;
     buffer_instance.native_payload = native_data;
 }
 
-void java_lang_System_currentTimeMillis(VM& vm, Frame& frame) {
+void java_lang_System_currentTimeMillis(VM& vm, Thread& thread) {
     std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch());
-    frame.push_stack(static_cast<int64_t>(ms.count()));
+    thread.current_frame().push_stack(static_cast<int64_t>(ms.count()));
 }
 
-void java_lang_Thread_start(VM& vm, Frame& frame) {
-    auto& thread_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void java_lang_Thread_start(VM& vm, Thread& thread) {
+    auto& thread_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     // TODO(Kostu): implement thread start
 }
 
-void javax_microedition_lcdui_Canvas_getHeight(VM& vm, Frame& frame) {
-    frame.pop_stack(); // this
+void javax_microedition_lcdui_Canvas_getHeight(VM& vm, Thread& thread) {
+    thread.current_frame().pop_stack(); // this
     int32_t height = vm.display()->height();
-    frame.push_stack(height);
+    thread.current_frame().push_stack(height);
 }
 
-void javax_microedition_lcdui_Canvas_getWidth(VM& vm, Frame& frame) {
-    frame.pop_stack(); // this
+void javax_microedition_lcdui_Canvas_getWidth(VM& vm, Thread& thread) {
+    thread.current_frame().pop_stack(); // this
     int32_t width = vm.display()->width();
-    frame.push_stack(width);
+    thread.current_frame().push_stack(width);
 }
 
-void javax_microedition_lcdui_Font_init(VM& vm, Frame& frame) {
-    auto* font_obj = std::get<Object*>(frame.pop_stack());
+void javax_microedition_lcdui_Font_init(VM& vm, Thread& thread) {
+    auto* font_obj = std::get<Object*>(thread.current_frame().pop_stack());
     // TODO(Kostu): implement font initialization
 }
 
-void javax_microedition_lcdui_Graphics_drawStringNative(VM& vm, Frame& frame) {
-    auto y = std::get<int32_t>(frame.pop_stack());
-    auto x = std::get<int32_t>(frame.pop_stack());
-    auto& str_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void javax_microedition_lcdui_Graphics_drawStringNative(VM& vm, Thread& thread) {
+    auto y = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto x = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& str_native = std::get<StringNativeData>(str_instance.native_payload);
-    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& gfx_native = std::get<GraphicsNativeData>(gfx_instance.native_payload);
     
     // TODO(Kostu): set color once
@@ -182,12 +182,12 @@ void javax_microedition_lcdui_Graphics_drawStringNative(VM& vm, Frame& frame) {
                         str_native.value.c_str());
 }
 
-void javax_microedition_lcdui_Graphics_fillRect(VM& vm, Frame& frame) {
-    auto height = std::get<int32_t>(frame.pop_stack());
-    auto width = std::get<int32_t>(frame.pop_stack());
-    auto y = std::get<int32_t>(frame.pop_stack());
-    auto x = std::get<int32_t>(frame.pop_stack());
-    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void javax_microedition_lcdui_Graphics_fillRect(VM& vm, Thread& thread) {
+    auto height = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto width = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto y = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto x = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& gfx_native = std::get<GraphicsNativeData>(gfx_instance.native_payload);
 
     auto* color_field = gfx_instance.type.find_field("color", "I");
@@ -202,10 +202,10 @@ void javax_microedition_lcdui_Graphics_fillRect(VM& vm, Frame& frame) {
     SDL_RenderFillRect(gfx_native.sdl_renderer, &rect);
 }
 
-void javax_microedition_lcdui_Graphics_init(VM& vm, Frame& frame) {
-    auto& img_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void javax_microedition_lcdui_Graphics_init(VM& vm, Thread& thread) {
+    auto& img_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& img_native = std::get<ImageNativeData>(img_instance.native_payload);
-    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
 
     GraphicsNativeData native_data{
         .sdl_renderer = SDL_CreateSoftwareRenderer(img_native.sdl_surface),
@@ -214,15 +214,15 @@ void javax_microedition_lcdui_Graphics_init(VM& vm, Frame& frame) {
     gfx_instance.native_payload = native_data;
 }
 
-void javax_microedition_lcdui_Image_getRGB(VM& vm, Frame& frame) {
-    auto height = std::get<int32_t>(frame.pop_stack());
-    auto width = std::get<int32_t>(frame.pop_stack());
-    auto y = std::get<int32_t>(frame.pop_stack());
-    auto x = std::get<int32_t>(frame.pop_stack());
-    auto scan_length = std::get<int32_t>(frame.pop_stack());
-    auto offset = std::get<int32_t>(frame.pop_stack());
-    auto& rgb_data = std::get<PrimitiveArrayData>(std::get<Object*>(frame.pop_stack())->data);
-    auto& img_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void javax_microedition_lcdui_Image_getRGB(VM& vm, Thread& thread) {
+    auto height = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto width = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto y = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto x = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto scan_length = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto offset = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& rgb_data = std::get<PrimitiveArrayData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& img_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& img_native = std::get<ImageNativeData>(img_instance.native_payload);
 
     if (SDL_MUSTLOCK(img_native.sdl_surface)) {
@@ -242,15 +242,65 @@ void javax_microedition_lcdui_Image_getRGB(VM& vm, Frame& frame) {
     }
 }
 
-void javax_microedition_lcdui_Image_init(VM& vm, Frame& frame) {
-    auto height = std::get<int32_t>(frame.pop_stack());
-    auto width = std::get<int32_t>(frame.pop_stack());
-    auto& img_instance = std::get<InstanceData>(std::get<Object*>(frame.pop_stack())->data);
+void javax_microedition_lcdui_Image_init(VM& vm, Thread& thread) {
+    auto height = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto width = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& img_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     
     ImageNativeData native_data{
         .sdl_surface = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_ARGB8888)
     };
     img_instance.native_payload = native_data;
+}
+
+void javax_microedition_rms_RecordStore_addRecord(VM& vm, Thread& thread) {
+    auto size = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto offset = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& data_array = std::get<PrimitiveArrayData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& record_store_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& record_store_native = std::get<RecordStoreNativeData>(record_store_instance.native_payload);
+    
+    if (offset < 0 || size < 0 || offset + size > data_array.length()) {
+        // In a complete VM this would raise ArrayIndexOutOfBoundsException.
+        throw std::runtime_error("RecordStore.addRecord: offset and size out of bounds");
+    }
+
+    auto& elements = std::get<std::vector<uint8_t>>(data_array.elements);
+    int32_t record_id = record_store_native.record_store->add_record(
+        std::span<const uint8_t>(elements.data() + offset, size));
+    thread.current_frame().push_stack(record_id);
+}
+
+void javax_microedition_rms_RecordStore_getNumRecords(VM& vm, Thread& thread) {
+    auto& record_store_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& record_store_native = std::get<RecordStoreNativeData>(record_store_instance.native_payload);
+    int32_t num_records = static_cast<int32_t>(record_store_native.record_store->size());
+    thread.current_frame().push_stack(num_records);
+}
+
+void javax_microedition_rms_RecordStore_openRecordStore(VM& vm, Thread& thread) {
+    auto create_if_necessary = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& name_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& name_native = std::get<StringNativeData>(name_instance.native_payload);
+
+    auto* record_store_obj = vm.heap().new_instance(vm.class_loader().load("javax/microedition/rms/RecordStore"));
+    auto& record_store_instance = std::get<InstanceData>(record_store_obj->data);
+    
+    auto* record_store = vm.record_store_manager().open_record_store(name_native.value, create_if_necessary != 0);
+    if (record_store == nullptr) {
+        Class& exc_class = vm.class_loader().load("javax/microedition/rms/RecordStoreNotFoundException");
+        Object* exc = vm.heap().new_instance(exc_class);
+        // TODO(Kostu): initialize exception with message
+        thread.set_pending_exception(exc);
+        return;
+    }
+    
+    RecordStoreNativeData native_data{
+        .record_store = record_store
+    };
+    record_store_instance.native_payload = native_data;
+
+    thread.current_frame().push_stack(record_store_obj);
 }
 
 }
@@ -283,7 +333,11 @@ NativeMethods::NativeMethods() {
         { "javax/microedition/lcdui/Graphics.init(Ljavax/microedition/lcdui/Image;)V",
            javax_microedition_lcdui_Graphics_init },
         { "javax/microedition/lcdui/Image.getRGB([IIIIIII)V", javax_microedition_lcdui_Image_getRGB },
-        { "javax/microedition/lcdui/Image.init(II)V", javax_microedition_lcdui_Image_init }
+        { "javax/microedition/lcdui/Image.init(II)V", javax_microedition_lcdui_Image_init },
+        { "javax/microedition/rms/RecordStore.addRecord([BII)I", javax_microedition_rms_RecordStore_addRecord },
+        { "javax/microedition/rms/RecordStore.getNumRecords()I", javax_microedition_rms_RecordStore_getNumRecords },
+        { "javax/microedition/rms/RecordStore.openRecordStore(Ljava/lang/String;Z)Ljavax/microedition/rms/RecordStore;",
+           javax_microedition_rms_RecordStore_openRecordStore }
     });
 }
 

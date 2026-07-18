@@ -3,12 +3,12 @@
 #include <string>
 #include <unordered_map>
 
-class Frame;
+class Thread;
 class VM;
 
 class NativeMethods {
 public:
-    using Callback = std::function<void(VM&, Frame&)>;
+    using Callback = std::function<void(VM&, Thread&)>;
 
     NativeMethods();
 

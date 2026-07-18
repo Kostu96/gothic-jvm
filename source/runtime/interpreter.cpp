@@ -41,7 +41,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             throw VmStopRequested{};
         }
         auto& frame = thread.current_frame();
-        size_t last_pc = frame.pc();
+        frame.record_last_pc();
 
         const auto opcode = frame.pop_code_u8();
         switch (opcode) {
@@ -298,6 +298,9 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             const auto element = static_cast<int32_t>(static_cast<int16_t>(value)); // short is 16-bit
             array->set(index, element);
         } break;
+        case op_pop: {
+            frame.pop_stack();
+        } break;
         
         case op_dup: {
             frame.push_stack(frame.peek_stack());
@@ -534,7 +537,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             }
 
             if (field.owner.needs_initialization()) {
-                frame.set_pc(last_pc);
+                frame.rewind_pc();
                 field.owner.ensure_initialized(thread);
             }
             else {
@@ -551,7 +554,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             }
 
             if (field.owner.needs_initialization()) {
-                frame.set_pc(last_pc);
+                frame.rewind_pc();
                 field.owner.ensure_initialized(thread);
             }
             else {
@@ -648,7 +651,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             }
 
             if (method.owner.needs_initialization()) {
-                frame.set_pc(last_pc);
+                frame.rewind_pc();
                 method.owner.ensure_initialized(thread);
             }
             else {
@@ -660,7 +663,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             auto index = frame.pop_code_u16();
             Class& target = frame.owner().resolve_class(index, vm_.class_loader());
             if (target.needs_initialization()) {
-                frame.set_pc(last_pc);
+                frame.rewind_pc();
                 target.ensure_initialized(thread);
             }
             else {
@@ -703,7 +706,14 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             }
             frame.push_stack(length);
         } break;
-
+        case op_athrow: {
+            auto* exc = std::get<Object*>(frame.pop_stack());
+            if (exc == nullptr) {
+                // In a complete VM this would raise NullPointerException.
+                throw std::runtime_error("athrow: exception object is null");
+            }
+            thread.set_pending_exception(exc);
+        } break;
         case op_checkcast: {
             auto index = frame.pop_code_u16();
             Class& target = frame.owner().resolve_class(index, vm_.class_loader());
@@ -802,8 +812,12 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         default:
             throw std::runtime_error(std::format(
                 "Interpreter: unimplemented opcode 0x{:02X} at pc={} in {}.{}{}",
-                opcode, last_pc,
+                opcode, frame.last_pc(),
                 frame.owner().this_name(), frame.method().name, frame.method().descriptor));
+        }
+
+        if (thread.has_pending_exception()) {
+            dispatch_pending_exception(thread);
         }
     }
 }
@@ -813,7 +827,7 @@ void Interpreter::invoke(Thread& thread, const Method& method) {
         std::println(
             "Interpreter: executing native {}.{}{}", method.owner.this_name(), method.name, method.descriptor);
         if (method.native_callback) {
-            (*(method.native_callback))(vm_, thread.current_frame());
+            (*(method.native_callback))(vm_, thread);
         }
         else {
             throw std::runtime_error(std::format(
@@ -827,4 +841,33 @@ void Interpreter::invoke(Thread& thread, const Method& method) {
         }
         thread.push_frame(method, args);
     }
+}
+
+void Interpreter::dispatch_pending_exception(Thread& thread) {
+    Object* exc = thread.pending_exception();
+    Class& exc_class = std::get<InstanceData>(exc->data).type;
+
+    while (!thread.is_terminated()) {
+        Frame& frame = thread.current_frame();
+        size_t pc = frame.last_pc();
+        for (const auto& e : frame.method().exception_table) {
+            if (pc < e.start_pc || pc >= e.end_pc) continue;
+            bool matches = (e.catch_type == 0); // 0 == catch-all (finally)
+            if (!matches) {
+                Class& handler_type =
+                    frame.owner().resolve_class(e.catch_type, vm_.class_loader());
+                matches = exc_class.is_subclass_of(handler_type);
+            }
+            if (matches) {
+                frame.operand_stack().clear();
+                frame.push_stack(exc);
+                frame.set_pc(e.handler_pc);
+                thread.clear_pending_exception();
+                return;
+            }
+        }
+        thread.pop_frame();
+    }
+    
+    throw std::runtime_error(std::format("Uncaught exception: {}", exc_class.this_name()));
 }

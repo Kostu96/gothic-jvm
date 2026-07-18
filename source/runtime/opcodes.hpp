@@ -64,6 +64,7 @@ constexpr uint8_t op_aastore = 0x53;
 constexpr uint8_t op_bastore = 0x54;
 constexpr uint8_t op_castore = 0x55;
 constexpr uint8_t op_sastore = 0x56;
+constexpr uint8_t op_pop = 0x57;
 
 constexpr uint8_t op_dup = 0x59;
 
@@ -127,7 +128,7 @@ constexpr uint8_t op_new = 0xBB;
 constexpr uint8_t op_newarray = 0xBC;
 constexpr uint8_t op_anewarray = 0xBD;
 constexpr uint8_t op_arraylength = 0xBE;
-
+constexpr uint8_t op_athrow = 0xBF;
 constexpr uint8_t op_checkcast = 0xC0;
 
 constexpr uint8_t op_monitorenter = 0xC2;

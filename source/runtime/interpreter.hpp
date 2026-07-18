@@ -20,6 +20,7 @@ public:
     Interpreter& operator=(const Interpreter&) = delete;
 private:
     void invoke(Thread& thread, const Method& method);
+    void dispatch_pending_exception(Thread& thread);
 
     VM& vm_;
 };

@@ -7,6 +7,7 @@
 #include <vector>
 
 class Class;
+class RecordStore;
 struct SDL_Surface;
 struct SDL_Renderer;
 
@@ -28,11 +29,16 @@ struct GraphicsNativeData {
     SDL_Surface* sdl_surface = nullptr;
 };
 
+struct RecordStoreNativeData {
+    RecordStore* record_store = nullptr;
+};
+
 using NativePayload = std::variant<std::monostate,
                                    ResourceInputStreamNativeData,
                                    StringNativeData,
                                    ImageNativeData,
-                                   GraphicsNativeData>;
+                                   GraphicsNativeData,
+                                   RecordStoreNativeData>;
 
 struct InstanceData {
     Class& type;
