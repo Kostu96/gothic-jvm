@@ -32,6 +32,7 @@ public:
 
     std::uint8_t pop_code_u8();
     std::uint16_t pop_code_u16();
+    std::int32_t pop_code_i32();
 
     void push_stack(Value value) { operand_stack_.push_back(value); }
     Value pop_stack();

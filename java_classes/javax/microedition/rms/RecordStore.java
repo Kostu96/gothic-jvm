@@ -6,6 +6,10 @@ public class RecordStore {
     addRecord(byte[] data, int offset, int size) throws
         RecordStoreNotOpenException, RecordStoreException, RecordStoreFullException;
 
+    public void closeRecordStore() throws RecordStoreNotOpenException, RecordStoreException {
+        closed = true;
+    }
+
     public native int getNumRecords() throws RecordStoreNotOpenException;
 
     public int getSizeAvailable() throws RecordStoreNotOpenException {
@@ -16,4 +20,10 @@ public class RecordStore {
     openRecordStore(String recordStoreName, boolean createIfNecessary) throws
         RecordStoreException, RecordStoreFullException, RecordStoreNotFoundException;
 
+    public native void
+    setRecord(int recordId, byte[] newData, int offset, int size) throws
+        RecordStoreNotOpenException, InvalidRecordIDException, RecordStoreException, RecordStoreFullException;
+    
+    private boolean closed = false;
+    
 }

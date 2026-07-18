@@ -31,6 +31,7 @@ set(JAVA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/PlayerListener.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/midlet/MIDlet.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/midlet/MIDletStateChangeException.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/rms/InvalidRecordIDException.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/rms/RecordStore.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/rms/RecordStoreException.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/rms/RecordStoreFullException.java

@@ -116,6 +116,20 @@ void java_lang_String_lastIndexOf(VM& vm, Thread& thread) {
     thread.current_frame().push_stack(result_index);
 }
 
+void java_lang_String_substringNative(VM& vm, Thread& thread) {
+    auto end_index = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto begin_index = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& str_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& str_native = std::get<StringNativeData>(str_instance.native_payload);
+    if (begin_index < 0 || end_index > str_native.value.size() || begin_index > end_index) {
+        // In a complete VM this would raise StringIndexOutOfBoundsException.
+        throw std::runtime_error("substring: index out of bounds");
+    }
+    auto substr = std::string_view(str_native.value).substr(begin_index, end_index - begin_index);
+    Object* substr_obj = vm.heap().new_interned_string(substr);
+    thread.current_frame().push_stack(substr_obj);
+}
+
 void java_lang_StringBuffer_append(VM& vm, Thread& thread) {
     auto& str_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& str_native = std::get<StringNativeData>(str_instance.native_payload);
@@ -303,6 +317,24 @@ void javax_microedition_rms_RecordStore_openRecordStore(VM& vm, Thread& thread) 
     thread.current_frame().push_stack(record_store_obj);
 }
 
+void javax_microedition_rms_RecordStore_setRecord(VM& vm, Thread& thread) {
+    auto size = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto offset = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& data_array = std::get<PrimitiveArrayData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto record_id = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& record_store_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& record_store_native = std::get<RecordStoreNativeData>(record_store_instance.native_payload);
+
+    if (offset < 0 || size < 0 || offset + size > data_array.length()) {
+        // In a complete VM this would raise ArrayIndexOutOfBoundsException.
+        throw std::runtime_error("RecordStore.addRecord: offset and size out of bounds");
+    }
+
+    auto& elements = std::get<std::vector<uint8_t>>(data_array.elements);
+    record_store_native.record_store->set_record(
+        record_id, std::span<const uint8_t>(elements.data() + offset, size));
+}
+
 }
 
 NativeMethods::NativeMethods() {
@@ -319,6 +351,7 @@ NativeMethods::NativeMethods() {
         { "java/lang/String.init(Ljava/lang/StringBuffer;)V", java_lang_String_init_StringBuffer },
         { "java/lang/String.init([CII)V", java_lang_String_init_char_array },
         { "java/lang/String.lastIndexOf(I)I", java_lang_String_lastIndexOf },
+        { "java/lang/String.substringNative(II)Ljava/lang/String;", java_lang_String_substringNative },
         { "java/lang/StringBuffer.append(Ljava/lang/String;)Ljava/lang/StringBuffer;", java_lang_StringBuffer_append },
         { "java/lang/StringBuffer.init()V", java_lang_StringBuffer_init },
         { "java/lang/System.currentTimeMillis()J", java_lang_System_currentTimeMillis },
@@ -337,7 +370,8 @@ NativeMethods::NativeMethods() {
         { "javax/microedition/rms/RecordStore.addRecord([BII)I", javax_microedition_rms_RecordStore_addRecord },
         { "javax/microedition/rms/RecordStore.getNumRecords()I", javax_microedition_rms_RecordStore_getNumRecords },
         { "javax/microedition/rms/RecordStore.openRecordStore(Ljava/lang/String;Z)Ljavax/microedition/rms/RecordStore;",
-           javax_microedition_rms_RecordStore_openRecordStore }
+           javax_microedition_rms_RecordStore_openRecordStore },
+        { "javax/microedition/rms/RecordStore.setRecord(I[BII)V", javax_microedition_rms_RecordStore_setRecord }
     });
 }
 

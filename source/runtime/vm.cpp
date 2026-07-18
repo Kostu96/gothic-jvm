@@ -61,6 +61,10 @@ void VM::run() {
         } break;
         }
 
-        interpreter_.run(main_thread, 500);
+        for (auto& thread : threads_) {
+            if (!thread->is_terminated()) {
+                interpreter_.run(*thread, 500);
+            }
+        }
     }
 }

@@ -20,6 +20,14 @@ std::uint16_t Frame::pop_code_u16() {
     return (high << 8) | low;
 }
 
+std::int32_t Frame::pop_code_i32() {
+    const auto b1 = std::to_integer<std::int32_t>(method_.code[pc_++]);
+    const auto b2 = std::to_integer<std::int32_t>(method_.code[pc_++]);
+    const auto b3 = std::to_integer<std::int32_t>(method_.code[pc_++]);
+    const auto b4 = std::to_integer<std::int32_t>(method_.code[pc_++]);
+    return (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
+}
+
 Value Frame::pop_stack() {
     Value value = operand_stack_.back();
     operand_stack_.pop_back();

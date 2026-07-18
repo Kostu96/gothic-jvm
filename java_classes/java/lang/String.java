@@ -32,7 +32,11 @@ public final class String {
         return substring(beginIndex, length());
     }
 
-    public native String substring(int beginIndex, int endIndex);
+    public String substring(int beginIndex, int endIndex) {
+        String substr = substringNative(beginIndex, endIndex);
+        substr.size = endIndex - beginIndex;
+        return substr;
+    }
 
     public static String valueOf(int i) {
         return Integer.toString(i, 10);
@@ -40,6 +44,7 @@ public final class String {
 
     private native void init(StringBuffer buffer);
     private native void init(char value[], int offset, int size);
+    private native String substringNative(int beginIndex, int endIndex);
 
     private int size;
 }

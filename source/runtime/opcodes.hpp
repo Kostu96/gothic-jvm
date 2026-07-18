@@ -112,6 +112,8 @@ constexpr uint8_t op_if_icmple = 0xA4;
 
 constexpr uint8_t op_goto = 0xA7;
 
+constexpr uint8_t op_tableswitch = 0xAA;
+
 constexpr uint8_t op_ireturn = 0xAC;
 
 constexpr uint8_t op_areturn = 0xB0;

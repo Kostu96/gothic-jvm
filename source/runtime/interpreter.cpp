@@ -501,6 +501,25 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             frame.branch(offset - 3); // -3 to account for the size of the instruction itself
         } break;
 
+        case op_tableswitch: {
+            size_t padding = frame.pc() % 4;
+            frame.branch(padding); // skip padding bytes
+            auto def = frame.pop_code_i32();
+            auto low = frame.pop_code_i32();
+            auto high = frame.pop_code_i32();
+            auto offsets = std::vector<int32_t>(high - low + 1);
+            for (int32_t& offset : offsets) {
+                offset = frame.pop_code_i32();
+            }
+            auto index = std::get<int32_t>(frame.pop_stack());
+            if (index < low || index > high) {
+                frame.set_pc(frame.last_pc() + def);
+            }
+            else {
+                frame.set_pc(frame.last_pc() + offsets[index - low]);
+            }
+        } break;
+
         case op_ireturn: {
             if (frame.operand_stack().size() != 1) {
                 throw std::runtime_error("ireturn: operand stack should have exactly one value");
