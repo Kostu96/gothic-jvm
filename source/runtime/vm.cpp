@@ -56,7 +56,7 @@ void VM::run() {
         } break;
         case Phase4: {
             if (main_thread.is_terminated()) {
-                return;
+                //return;
             }
         } break;
         }

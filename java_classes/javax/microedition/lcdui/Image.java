@@ -4,6 +4,8 @@ import java.io.*;
 
 public class Image {
 
+    public static native Image createImage(byte[] imageData, int imageOffset, int imageLength);
+
     public static native Image createImage(InputStream stream) throws IOException;
 
     public static Image createImage(int width, int height) {
@@ -20,10 +22,14 @@ public class Image {
         return new Graphics(this);
     }
 
+    public native int getHeight();
+
     public native void getRGB(int[] rgbData,
                               int offset, int scanLength,
                               int x, int y,
                               int width, int height);
+
+    public native int getWidth();
 
     private Image(int width, int height) {
         init(width, height);

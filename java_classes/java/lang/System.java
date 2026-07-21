@@ -9,8 +9,7 @@ public final class System {
     public static native long currentTimeMillis();
 
     public static native void arraycopy(Object src, int srcOffset,
-                                        Object dst, int dstOffset,
-                                        int length);
+                                        Object dst, int dstOffset, int length);
 
     public static native int identityHashCode(Object x);
 

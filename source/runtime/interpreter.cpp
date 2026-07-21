@@ -201,8 +201,21 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             }
             frame.push_stack(array->get(index));
         } break;
-
+        case op_saload: {
+            auto index = std::get<int32_t>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
+            auto* array = reference ? std::get_if<PrimitiveArrayData>(&reference->data) : nullptr;
+            if (array == nullptr) {
+                // In a complete VM a null reference would raise NullPointerException.
+                throw std::runtime_error("saload: object is not an array reference");
+            }
+            frame.push_stack(array->get(index));
+        } break;
         case op_istore: {
+            auto index = frame.pop_code_u8();
+            frame.locals()[index] = frame.pop_stack();
+        } break;
+        case op_lstore: {
             auto index = frame.pop_code_u8();
             frame.locals()[index] = frame.pop_stack();
         } break;
@@ -221,6 +234,18 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             frame.locals()[2] = frame.pop_stack();
         } break;
         case op_istore_3: {
+            frame.locals()[3] = frame.pop_stack();
+        } break;
+        case op_lstore_0: {
+            frame.locals()[0] = frame.pop_stack();
+        } break;
+        case op_lstore_1: {
+            frame.locals()[1] = frame.pop_stack();
+        } break;
+        case op_lstore_2: {
+            frame.locals()[2] = frame.pop_stack();
+        } break;
+        case op_lstore_3: {
             frame.locals()[3] = frame.pop_stack();
         } break;
 
@@ -310,7 +335,12 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         case op_pop: {
             frame.pop_stack();
         } break;
-        
+        case op_pop2: {
+            auto value1 = frame.pop_stack();
+            if (!std::holds_alternative<int64_t>(value1) && !std::holds_alternative<double>(value1)) {
+                frame.pop_stack();
+            }
+        } break;
         case op_dup: {
             frame.push_stack(frame.peek_stack());
         } break;
@@ -327,6 +357,13 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
                 frame.push_stack(value1);
             }
         } break;
+        case op_dup_x1: {
+            auto value1 = frame.pop_stack();
+            auto value2 = frame.pop_stack();
+            frame.push_stack(value1);
+            frame.push_stack(value2);
+            frame.push_stack(value1); // TODO(Kostu): add ability to insert at arbitrary position in stack
+        } break;
 
         case op_iadd: {
             auto value2 = std::get<int32_t>(frame.pop_stack());
@@ -342,6 +379,11 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         case op_isub: {
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(value1 - value2);
+        } break;
+        case op_lsub: {
+            auto value2 = std::get<int64_t>(frame.pop_stack());
+            auto value1 = std::get<int64_t>(frame.pop_stack());
             frame.push_stack(value1 - value2);
         } break;
 
@@ -388,6 +430,12 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             frame.push_stack(value1 >> (value2 & 0x1F));
         } break;
 
+        case op_iushr: {
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(static_cast<int32_t>(static_cast<uint32_t>(value1) >> (value2 & 0x1F)));
+        } break;
+
         case op_iand: {
             auto value2 = std::get<int32_t>(frame.pop_stack());
             auto value1 = std::get<int32_t>(frame.pop_stack());
@@ -404,6 +452,11 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             frame.push_stack(value1 | value2);
         } break;
 
+        case op_ixor: {
+            auto value2 = std::get<int32_t>(frame.pop_stack());
+            auto value1 = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(value1 ^ value2);
+        } break;
         case op_lxor: {
             auto value2 = std::get<int64_t>(frame.pop_stack());
             auto value1 = std::get<int64_t>(frame.pop_stack());
@@ -414,12 +467,19 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             auto constant = static_cast<int8_t>(frame.pop_code_u8());
             frame.locals()[index] = std::get<int32_t>(frame.locals()[index]) + constant;
         } break;
+        case op_i2l: {
+            auto value = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(static_cast<int64_t>(value));
+        } break;
 
         case op_i2b: {
             auto value = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(static_cast<int32_t>(static_cast<int8_t>(value)));
         } break;
-
+        case op_i2c: {
+            auto value = std::get<int32_t>(frame.pop_stack());
+            frame.push_stack(static_cast<int32_t>(static_cast<uint16_t>(value)));
+        } break;
         case op_i2s: {
             auto value = std::get<int32_t>(frame.pop_stack());
             frame.push_stack(static_cast<int32_t>(static_cast<int16_t>(value)));
@@ -458,7 +518,13 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
                 frame.branch(offset - 3); // -3 to account for the size of the instruction itself
             }
         } break;
-
+        case op_ifgt: {
+            auto offset = static_cast<int16_t>(frame.pop_code_u16());
+            auto value = std::get<int32_t>(frame.pop_stack());
+            if (value > 0) {
+                frame.branch(offset - 3); // -3 to account for the size of the instruction itself
+            }
+        } break;
         case op_ifle: {
             auto offset = static_cast<int16_t>(frame.pop_code_u16());
             auto value = std::get<int32_t>(frame.pop_stack());
@@ -521,7 +587,7 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         } break;
 
         case op_tableswitch: {
-            size_t padding = frame.pc() % 4;
+            size_t padding = (4 - (frame.pc() % 4)) % 4;
             frame.branch(padding); // skip padding bytes
             auto def = frame.pop_code_i32();
             auto low = frame.pop_code_i32();
@@ -538,10 +604,36 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
                 frame.set_pc(frame.last_pc() + offsets[index - low]);
             }
         } break;
-
+        case op_lookupswitch: {
+            size_t padding = (4 - (frame.pc() % 4)) % 4;
+            frame.branch(padding); // skip padding bytes
+            auto def = frame.pop_code_i32();
+            auto npairs = frame.pop_code_i32();
+            std::vector<std::pair<int32_t, int32_t>> pairs(npairs);
+            for (auto& [match, offset] : pairs) {
+                match = frame.pop_code_i32();
+                offset = frame.pop_code_i32();
+            }
+            auto key = std::get<int32_t>(frame.pop_stack());
+            auto it = std::find_if(pairs.begin(), pairs.end(), [key](const auto& pair) { return pair.first == key; });
+            if (it != pairs.end()) {
+                frame.set_pc(frame.last_pc() + it->second);
+            }
+            else {
+                frame.set_pc(frame.last_pc() + def);
+            }
+        } break;
         case op_ireturn: {
             if (frame.operand_stack().size() != 1) {
                 throw std::runtime_error("ireturn: operand stack should have exactly one value");
+            }
+            Value ret = frame.pop_stack();
+            thread.pop_frame();
+            thread.current_frame().push_stack(ret);
+        } break;
+        case op_lreturn: {
+            if (frame.operand_stack().size() != 1) {
+                throw std::runtime_error("lreturn: operand stack should have exactly one value");
             }
             Value ret = frame.pop_stack();
             thread.pop_frame();
@@ -834,9 +926,11 @@ void Interpreter::virtual_dispatch(Thread& thread, const Method& resolved_method
     auto* receiver = std::get<Object*>(frame.peek_stack(resolved_method.arg_slot_widths.size() - 1));
     if (receiver == nullptr) {
         // In a complete VM this would raise NullPointerException.
-        throw std::runtime_error(std::format(
-            "Interpreter: null receiver for {}.{}{}",
-            resolved_method.owner.this_name(), resolved_method.name, resolved_method.descriptor));
+        thread.set_pending_exception(vm_.heap().new_instance(vm_.class_loader().load("java/lang/NullPointerException")));
+        return;
+        //throw std::runtime_error(std::format(
+        //    "Interpreter: null receiver for {}.{}{}",
+        //    resolved_method.owner.this_name(), resolved_method.name, resolved_method.descriptor));
     }
 
     Class* receiver_class = nullptr;

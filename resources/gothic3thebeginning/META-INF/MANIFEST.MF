@@ -1,9 +1,0 @@
-Manifest-Version: 1.0
-MIDlet-1: Gothic3TheBeginning,icon.png,HG
-MIDlet-Icon: icon.png
-MIDlet-Name: Gothic3TheBeginning
-MIDlet-Vendor: [ANDREW-LVIV] /  www.handy-games.com GmbH
-MIDlet-Version: 1.0
-MicroEdition-Configuration: CLDC-1.0
-MicroEdition-Profile: MIDP-2.0
-MIDlet-Info-URL: http://andrew-lviv.net

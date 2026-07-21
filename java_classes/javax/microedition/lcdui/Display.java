@@ -10,6 +10,10 @@ public class Display {
         return INSTANCE;
     }
 
+    public int numAlphaLevels() {
+        return 256; // 8-bits for alpha
+    }
+
     public void setCurrent(Displayable disp) {
         current = disp;
     }

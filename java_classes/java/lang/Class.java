@@ -19,6 +19,7 @@ public final class Class {
     public native String getName();
 
     public InputStream getResourceAsStream(String name) {
+        //System.out.println(this.get);
         try {
             if (name.length() > 0 && name.charAt(0) == '/') {
                 /* Absolute format */

@@ -45,14 +45,19 @@ constexpr uint8_t op_iaload = 0x2E;
 constexpr uint8_t op_aaload = 0x32;
 constexpr uint8_t op_baload = 0x33;
 constexpr uint8_t op_caload = 0x34;
-
+constexpr uint8_t op_saload = 0x35;
 constexpr uint8_t op_istore = 0x36;
+constexpr uint8_t op_lstore = 0x37;
 
 constexpr uint8_t op_astore = 0x3A;
 constexpr uint8_t op_istore_0 = 0x3B;
 constexpr uint8_t op_istore_1 = 0x3C;
 constexpr uint8_t op_istore_2 = 0x3D;
 constexpr uint8_t op_istore_3 = 0x3E;
+constexpr uint8_t op_lstore_0 = 0x3F;
+constexpr uint8_t op_lstore_1 = 0x40;
+constexpr uint8_t op_lstore_2 = 0x41;
+constexpr uint8_t op_lstore_3 = 0x42;
 
 constexpr uint8_t op_astore_0 = 0x4B;
 constexpr uint8_t op_astore_1 = 0x4C;
@@ -65,8 +70,9 @@ constexpr uint8_t op_bastore = 0x54;
 constexpr uint8_t op_castore = 0x55;
 constexpr uint8_t op_sastore = 0x56;
 constexpr uint8_t op_pop = 0x57;
-
+constexpr uint8_t op_pop2 = 0x58;
 constexpr uint8_t op_dup = 0x59;
+constexpr uint8_t op_dup_x1 = 0x5A;
 
 constexpr uint8_t op_dup2 = 0x5C;
 
@@ -74,6 +80,7 @@ constexpr uint8_t op_iadd = 0x60;
 constexpr uint8_t op_ladd = 0x61;
 
 constexpr uint8_t op_isub = 0x64;
+constexpr uint8_t op_lsub = 0x65;
 
 constexpr uint8_t op_imul = 0x68;
 
@@ -87,15 +94,19 @@ constexpr uint8_t op_ishl = 0x78;
 
 constexpr uint8_t op_ishr = 0x7A;
 
+constexpr uint8_t op_iushr = 0x7C;
+
 constexpr uint8_t op_iand = 0x7E;
 constexpr uint8_t op_land = 0x7F;
 constexpr uint8_t op_ior = 0x80;
 
+constexpr uint8_t op_ixor = 0x82;
 constexpr uint8_t op_lxor = 0x83;
 constexpr uint8_t op_iinc = 0x84;
+constexpr uint8_t op_i2l = 0x85;
 
 constexpr uint8_t op_i2b = 0x91;
-
+constexpr uint8_t op_i2c = 0x92;
 constexpr uint8_t op_i2s = 0x93;
 constexpr uint8_t op_lcmp = 0x94;
 
@@ -103,7 +114,7 @@ constexpr uint8_t op_ifeq = 0x99;
 constexpr uint8_t op_ifne = 0x9A;
 constexpr uint8_t op_iflt = 0x9B;
 constexpr uint8_t op_ifge = 0x9C;
-
+constexpr uint8_t op_ifgt = 0x9D;
 constexpr uint8_t op_ifle = 0x9E;
 constexpr uint8_t op_if_icmpeq = 0x9F;
 constexpr uint8_t op_if_icmpne = 0xA0;
@@ -115,8 +126,9 @@ constexpr uint8_t op_if_icmple = 0xA4;
 constexpr uint8_t op_goto = 0xA7;
 
 constexpr uint8_t op_tableswitch = 0xAA;
-
+constexpr uint8_t op_lookupswitch = 0xAB;
 constexpr uint8_t op_ireturn = 0xAC;
+constexpr uint8_t op_lreturn = 0xAD;
 
 constexpr uint8_t op_areturn = 0xB0;
 constexpr uint8_t op_return = 0xB1;

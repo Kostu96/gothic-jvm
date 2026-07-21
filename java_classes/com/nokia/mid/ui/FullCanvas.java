@@ -16,7 +16,7 @@ public abstract class FullCanvas extends Canvas {
 	public static final int KEY_RIGHT_ARROW = -4;
 
 	protected FullCanvas() {
-		super(true);
+		setFullScreenMode(true);
 	}
 
 	//public void addCommand(Command cmd) {

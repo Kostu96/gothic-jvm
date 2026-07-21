@@ -12,6 +12,8 @@ public class Thread implements Runnable {
         }
     }
 
+    public static void sleep(long millis) throws InterruptedException {}
+
     public native void start();
 
     private Runnable target;

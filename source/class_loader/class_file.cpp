@@ -25,49 +25,49 @@ std::vector<std::byte> read_file(const char* filename) {
 }
 
 // TODO(Kostu): use this when creating String objects from Utf8Info in the constant pool
-std::u16string decode_modified_utf8(std::string_view input) {
-    std::u16string result;
-    result.reserve(input.size());
-
-    size_t i = 0;
-
-    while (i < input.size()) {
-        uint8_t b0 = static_cast<uint8_t>(input[i++]);
-
-        if ((b0 & 0x80) == 0) {
-            // 1-byte ASCII (except 0x00, which should never appear in MUTF-8)
-            result.push_back(static_cast<char16_t>(b0));
-        }
-        else if ((b0 & 0xE0) == 0xC0) {
-            if (i >= input.size()) throw std::runtime_error("Truncated MUTF-8");
-
-            uint8_t b1 = static_cast<uint8_t>(input[i++]);
-
-            if ((b1 & 0xC0) != 0x80) throw std::runtime_error("Invalid MUTF-8");
-
-            uint16_t ch = ((b0 & 0x1F) << 6) | (b1 & 0x3F);
-
-            result.push_back(static_cast<char16_t>(ch));
-        }
-        else if ((b0 & 0xF0) == 0xE0) {
-            if (i + 1 >= input.size()) throw std::runtime_error("Truncated MUTF-8");
-
-            uint8_t b1 = static_cast<uint8_t>(input[i++]);
-            uint8_t b2 = static_cast<uint8_t>(input[i++]);
-
-            if ((b1 & 0xC0) != 0x80 || (b2 & 0xC0) != 0x80) throw std::runtime_error("Invalid MUTF-8");
-
-            uint16_t ch = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F);
-
-            result.push_back(static_cast<char16_t>(ch));
-        }
-        else {
-            throw std::runtime_error("Invalid MUTF-8 byte");
-        }
-    }
-
-    return result;
-}
+//std::u16string decode_modified_utf8(std::string_view input) {
+//    std::u16string result;
+//    result.reserve(input.size());
+//
+//    size_t i = 0;
+//
+//    while (i < input.size()) {
+//        uint8_t b0 = static_cast<uint8_t>(input[i++]);
+//
+//        if ((b0 & 0x80) == 0) {
+//            // 1-byte ASCII (except 0x00, which should never appear in MUTF-8)
+//            result.push_back(static_cast<char16_t>(b0));
+//        }
+//        else if ((b0 & 0xE0) == 0xC0) {
+//            if (i >= input.size()) throw std::runtime_error("Truncated MUTF-8");
+//
+//            uint8_t b1 = static_cast<uint8_t>(input[i++]);
+//
+//            if ((b1 & 0xC0) != 0x80) throw std::runtime_error("Invalid MUTF-8");
+//
+//            uint16_t ch = ((b0 & 0x1F) << 6) | (b1 & 0x3F);
+//
+//            result.push_back(static_cast<char16_t>(ch));
+//        }
+//        else if ((b0 & 0xF0) == 0xE0) {
+//            if (i + 1 >= input.size()) throw std::runtime_error("Truncated MUTF-8");
+//
+//            uint8_t b1 = static_cast<uint8_t>(input[i++]);
+//            uint8_t b2 = static_cast<uint8_t>(input[i++]);
+//
+//            if ((b1 & 0xC0) != 0x80 || (b2 & 0xC0) != 0x80) throw std::runtime_error("Invalid MUTF-8");
+//
+//            uint16_t ch = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F);
+//
+//            result.push_back(static_cast<char16_t>(ch));
+//        }
+//        else {
+//            throw std::runtime_error("Invalid MUTF-8 byte");
+//        }
+//    }
+//
+//    return result;
+//}
 
 }
 
