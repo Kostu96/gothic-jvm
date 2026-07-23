@@ -2,8 +2,9 @@
 #include <cstdint>
 #include <string>
 
-struct SDL_Window;
 struct SDL_Renderer;
+struct SDL_Surface;
+struct SDL_Window;
 
 class Display {
 public:
@@ -19,12 +20,14 @@ public:
     int width() const noexcept { return width_; }
     int height() const noexcept { return height_; }
     SDL_Renderer* renderer() const noexcept { return renderer_; }
+    SDL_Surface* framebuffer() const noexcept { return framebuffer_; }
 
     Display(const Display&) = delete;
     Display& operator=(const Display&) = delete;
 private:
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
+    SDL_Surface* framebuffer_ = nullptr;
     int width_ = 0;
     int height_ = 0;
     int scale_ = 1;

@@ -301,6 +301,20 @@ void javax_microedition_lcdui_Font_init(VM& vm, Thread& thread) {
     // TODO(Kostu): implement font initialization
 }
 
+void javax_microedition_lcdui_Graphics_drawImageNative(VM& vm, Thread& thread) {
+    auto y = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto x = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& img_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& img_native = std::get<ImageNativeData>(img_instance.native_payload);
+    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& gfx_native = std::get<GraphicsNativeData>(gfx_instance.native_payload);
+    SDL_Rect dst_rect{
+        .x = x, .y = y,
+        .w = img_native.sdl_surface->w, .h = img_native.sdl_surface->h
+    };
+    SDL_BlitSurface(img_native.sdl_surface, nullptr, gfx_native.sdl_surface, &dst_rect);
+}
+
 void javax_microedition_lcdui_Graphics_drawStringNative(VM& vm, Thread& thread) {
     auto y = std::get<int32_t>(thread.current_frame().pop_stack());
     auto x = std::get<int32_t>(thread.current_frame().pop_stack());
@@ -318,6 +332,26 @@ void javax_microedition_lcdui_Graphics_drawStringNative(VM& vm, Thread& thread) 
     SDL_RenderDebugText(gfx_native.sdl_renderer,
                         static_cast<float>(x), static_cast<float>(y),
                         str_native.value.c_str());
+}
+
+void javax_microedition_lcdui_Graphics_drawRectNative(VM& vm, Thread& thread) {
+    auto height = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto width = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto y = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto x = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& gfx_native = std::get<GraphicsNativeData>(gfx_instance.native_payload);
+    auto* color_field = gfx_instance.type.find_field("color", "I");
+    auto color = std::get<int32_t>(gfx_instance.fields[color_field->slot]);
+    SDL_SetRenderDrawColor(gfx_native.sdl_renderer,
+        (color >> 24) & 0xFF, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
+
+    const SDL_FRect rect{
+        .x = static_cast<float>(x), .y = static_cast<float>(y),
+        .w = static_cast<float>(width), .h = static_cast<float>(height)
+    };
+    SDL_RenderRect(gfx_native.sdl_renderer, &rect);
+    SDL_SaveBMP(gfx_native.sdl_surface, "debug.bmp");
 }
 
 void javax_microedition_lcdui_Graphics_fillRect(VM& vm, Thread& thread) {
@@ -341,6 +375,15 @@ void javax_microedition_lcdui_Graphics_fillRect(VM& vm, Thread& thread) {
 }
 
 void javax_microedition_lcdui_Graphics_init(VM& vm, Thread& thread) {
+    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    GraphicsNativeData native_data{
+        .sdl_renderer = SDL_CreateSoftwareRenderer(vm.display()->framebuffer()),
+        .sdl_surface = vm.display()->framebuffer()
+    };
+    gfx_instance.native_payload = native_data;
+}
+
+void javax_microedition_lcdui_Graphics_init_Image(VM& vm, Thread& thread) {
     auto& img_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& img_native = std::get<ImageNativeData>(img_instance.native_payload);
     auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
@@ -366,10 +409,7 @@ void javax_microedition_lcdui_Image_createImage_byte_array(VM& vm, Thread& threa
     auto pixels = stbi_load_from_memory(elements.data() + offset, size, &width, &height, &channels, 4);
     for (int i = 0; i < width * height; ++i) {
         uint8_t* pixel = reinterpret_cast<uint8_t*>(pixels) + i * 4;
-        // Swap RGBA to ARGB:
-        std::swap(pixel[0], pixel[3]); // R <-> A AGBR
-        std::swap(pixel[1], pixel[3]); // G <-> R ARBG
-        std::swap(pixel[2], pixel[3]); // B <-> G ARGB
+        std::swap(pixel[0], pixel[2]);
     }
     ImageNativeData native_data{
         .sdl_surface = SDL_CreateSurfaceFrom(width, height, SDL_PIXELFORMAT_ARGB8888, pixels, width * 4)
@@ -390,10 +430,7 @@ void javax_microedition_lcdui_Image_createImage_InputStream(VM& vm, Thread& thre
 
     for (int i = 0; i < width * height; ++i) {
         uint8_t* pixel = reinterpret_cast<uint8_t*>(pixels) + i * 4;
-        // Swap RGBA to ARGB:
-        std::swap(pixel[0], pixel[3]); // R <-> A AGBR
-        std::swap(pixel[1], pixel[3]); // G <-> R ARBG
-        std::swap(pixel[2], pixel[3]); // B <-> G ARGB
+        std::swap(pixel[0], pixel[2]);
     }
 
     ImageNativeData native_data{
@@ -561,11 +598,15 @@ NativeMethods::NativeMethods() {
         { "javax/microedition/lcdui/Canvas.repaint(IIII)V", javax_microedition_lcdui_Canvas_repaint },
         { "javax/microedition/lcdui/Canvas.serviceRepaints()V", javax_microedition_lcdui_Canvas_serviceRepaints },
         { "javax/microedition/lcdui/Font.init()V", javax_microedition_lcdui_Font_init },
+        { "javax/microedition/lcdui/Graphics.drawImageNative(Ljavax/microedition/lcdui/Image;II)V",
+           javax_microedition_lcdui_Graphics_drawImageNative },
         { "javax/microedition/lcdui/Graphics.drawStringNative(Ljava/lang/String;II)V",
            javax_microedition_lcdui_Graphics_drawStringNative },
+        { "javax/microedition/lcdui/Graphics.drawRectNative(IIII)V", javax_microedition_lcdui_Graphics_drawRectNative },
         { "javax/microedition/lcdui/Graphics.fillRect(IIII)V", javax_microedition_lcdui_Graphics_fillRect },
+        { "javax/microedition/lcdui/Graphics.init()V", javax_microedition_lcdui_Graphics_init },
         { "javax/microedition/lcdui/Graphics.init(Ljavax/microedition/lcdui/Image;)V",
-           javax_microedition_lcdui_Graphics_init },
+           javax_microedition_lcdui_Graphics_init_Image },
         { "javax/microedition/lcdui/Image.createImage([BII)Ljavax/microedition/lcdui/Image;",
            javax_microedition_lcdui_Image_createImage_byte_array },
         { "javax/microedition/lcdui/Image.createImage(Ljava/io/InputStream;)Ljavax/microedition/lcdui/Image;",

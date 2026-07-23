@@ -18,9 +18,16 @@ public class Display {
         current = disp;
     }
 
+    static Graphics getGraphics() {
+        if (GRAPHICS == null)
+            GRAPHICS = new Graphics();
+        return GRAPHICS;
+    }
+
     private Display() {}
 
     private static Display INSTANCE;
+    private static Graphics GRAPHICS;
 
     private Displayable current;
 }

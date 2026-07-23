@@ -2,8 +2,9 @@
 
 A small, educational **Java Virtual Machine** written in modern **C++23**. It parses
 `.class` files, builds a runtime model of classes, and interprets JVM bytecode. The default
-workload is a J2ME-style MIDlet: the `HG` main class shipped under `gothic3thebeginning/`.
-The goal is to implement *just enough* of a VM to bring that MIDlet to life.
+workload is a J2ME-style MIDlet: the `HG` main class from `gothic3thebeginning/`, external game
+data that lives outside the repo and is never committed. The goal is to implement *just enough* of
+a VM to bring that MIDlet to life.
 
 > ⚠️ **Status: early and partial.** Only a subset of JVM opcodes is implemented, a handful
 > of standard-library methods are backed by C++ "native" callbacks, there is no garbage
@@ -21,7 +22,7 @@ The goal is to implement *just enough* of a VM to bring that MIDlet to life.
   branches, `tableswitch`/`lookupswitch`, field access, object/array creation, monitors, `athrow`,
   and `invokevirtual`/`invokespecial`/`invokestatic`/`invokeinterface`.
 - A rudimentary cooperative scheduler: `VM::run` round-robins every live green thread a
-  500-instruction quantum at a time, and `java.lang.Thread.start` spawns new green threads (each an
+  400-instruction quantum at a time, and `java.lang.Thread.start` spawns new green threads (each an
   explicit frame stack). There is still no yielding, blocking, or priorities.
 - Bytecode-level exceptions: `athrow` plus `Code` exception-table dispatch make `try`/`catch`/
   `finally` work (handler types are matched by walking the superclass chain). Exception objects
@@ -33,10 +34,12 @@ The goal is to implement *just enough* of a VM to bring that MIDlet to life.
 - A set of native methods (timing, canvas size, `Class.forName`/`getClass`, `String`/`StringBuffer`
   operations, resource streaming, MIDP `Graphics`/`Image` drawing with PNG decoding via stb_image,
   and in-memory MIDP RMS record stores).
-- An SDL3 window with a 2D renderer that opens on startup. The MIDP drawing primitives
-  (`Graphics.fillRect`/`drawString`, `Image` surfaces) do real work but render to **offscreen**
-  surfaces that are not yet blitted to the window (which just clears each frame and handles the
-  window-close event).
+- An SDL3 window with a 2D renderer that opens on startup, plus a MIDP `Canvas` repaint model: the
+  abstract `Canvas.paint(Graphics)` is driven from Java (`repaint()` sets a flag; `serviceRepaints()`
+  synchronously calls `paint(Display.getGraphics())` on the running green thread). The drawing
+  primitives (`Graphics.fillRect`/`drawRect`/`drawString`/`drawImage`, `Image` surfaces) do real
+  work, but they render into an **offscreen** framebuffer that is not yet blitted to the window
+  (which still just clears each frame and handles the window-close event).
 
 ## Getting started
 
@@ -91,7 +94,8 @@ app <main-class> [<classpath-entry> ...]
 With no arguments it defaults to the `HG` MIDlet and looks for classes under
 `<cwd>/gothic3thebeginning`. Because the classpath is assembled from the **current working
 directory**, run it from a directory that contains `java_classes/` and `gothic3thebeginning/`;
-the build compiles `java_classes/` into `build/java_classes/` for you.
+the build compiles `java_classes/` into `build/java_classes/` for you, but you must supply the
+`gothic3thebeginning/` MIDlet data yourself (it is external and never committed).
 
 ## How it works
 
@@ -140,8 +144,7 @@ source/
   runtime/            # VM, interpreter, threads, classes, heap, objects, frames
   utils/              # big-endian binary reader
 tests/                # GoogleTest unit tests
-resources/            # vendored J2ME stdlib + MIDlet data
-java_classes/         # hand-maintained bootstrap runtime classes (.java, compiled by CMake)
+java_classes/         # all runtime library classes (.java, compiled by CMake)
 third_party/gtest/    # GoogleTest (submodule)
 third_party/stb/      # vendored stb_image (PNG decoding for Image.createImage)
 ```
@@ -151,7 +154,7 @@ third_party/stb/      # vendored stb_image (PNG decoding for Image.createImage)
 Known gaps:
 
 - **Cooperative green threads, minimal scheduling.** `VM::run` round-robins every live thread a
-  500-instruction quantum at a time and `java.lang.Thread.start` spawns new green threads, but
+  400-instruction quantum at a time and `java.lang.Thread.start` spawns new green threads, but
   there is no yielding, blocking, priorities, or thread-state model, and the monitor opcodes never
   block.
 - **JVM-internal errors surface as C++ exceptions.** Divide-by-zero, array-store, and out-of-bounds
@@ -168,11 +171,17 @@ Known gaps:
 - **Unbound `native` methods.** A few methods declared `native` in the bootstrap sources have no
   C++ binding yet (`System.identityHashCode`, `System.exit`, `Class.isInterface`), so calling them
   throws.
-- **Runtime dependency classes are vendored.** The build compiles only the `java_classes/*.java`
-  sources; other classes the MIDlet needs (`java/io/*`, `java/util/*`) come from vendored copies
-  under `resources/classes/` and must be present in `build/java_classes/` at runtime.
-- **MIDP graphics are offscreen.** `Graphics`/`Image` natives draw onto SDL surfaces that are
-  never blitted to the window, so nothing is visible on screen yet.
+- **Runtime library classes are compiled from source, and some are missing.** Every stdlib class
+  the VM loads comes from a hand-maintained `.java` source under `java_classes/` (compiled by
+  CMake). Classes not yet ported (the rest of `java/io/*` such as `InputStream`, and `java/util/*`)
+  are simply absent and are being added as `.java` sources over time — a MIDlet that needs one will
+  fail to load it until then. The `gothic3thebeginning/` MIDlet data is external, never committed,
+  and must be supplied at `<cwd>/gothic3thebeginning`.
+- **MIDP graphics are offscreen.** `Display` owns a 240×320 framebuffer surface and the abstract
+  `Canvas.paint(Graphics)` is now driven from Java via `repaint()`/`serviceRepaints()`, so `paint`
+  runs and the `Graphics`/`Image` natives draw into that framebuffer. But nothing blits it to the
+  window yet (there is no interthread present/handoff), so the screen stays black; a bare
+  `repaint()` without `serviceRepaints()` also never paints.
 - **Test coverage** is limited to the binary reader.
 
 Roadmap:
@@ -183,7 +192,8 @@ Roadmap:
   (NPE, `ArithmeticException`, `ArrayStoreException`, …) instead of throwing `std::runtime_error`.
 - Implement `super`-calls (`ACC_SUPER`) and `checkcast`/`instanceof` type checks.
 - Parse `Float`/`Double` constants and widen opcode coverage.
-- Blit the offscreen MIDP surfaces to the window and wire up the `Displayable`/`paint` model.
+- Blit the offscreen MIDP framebuffer to the window (an interthread present/handoff between the
+  painting JVM thread and the presenting main thread) so `paint()` output becomes visible.
 - Bind the remaining `native` methods, start on garbage collection, and restore parser/interpreter
   test coverage.
 

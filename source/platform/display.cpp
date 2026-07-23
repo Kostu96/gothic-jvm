@@ -20,12 +20,17 @@ Display::Display(const std::string& title, int width, int height, int scale) :
         throw std::runtime_error("SDL_CreateWindowAndRenderer failed: " + error);
     }
 
+    framebuffer_ = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_ARGB8888);
+
     // Cap the frame rate to the display refresh so the render loop does not
     // spin at 100% CPU.
     SDL_SetRenderVSync(renderer_, 1);
 }
 
 Display::~Display() {
+    if (framebuffer_ != nullptr) {
+        SDL_DestroySurface(framebuffer_);
+    }
     if (renderer_ != nullptr) {
         SDL_DestroyRenderer(renderer_);
     }

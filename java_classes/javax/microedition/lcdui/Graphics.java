@@ -10,6 +10,28 @@ public class Graphics {
 	public static final int BOTTOM = 32;
 	public static final int BASELINE = 64;
 
+    public void drawImage(Image image, int x, int y, int anchor) {
+        int lx;
+		if ((anchor & RIGHT) != 0) {
+			lx = x - image.getWidth();
+		} else if ((anchor & HCENTER) != 0) {
+			lx = x - image.getWidth() / 2;
+		} else {
+			lx = x;
+		}
+
+		int ly;
+		if ((anchor & BOTTOM) != 0) {
+			ly = y - image.getHeight();
+		} else if ((anchor & VCENTER) != 0) {
+			ly = y - image.getHeight() / 2;
+		} else {
+			ly = y;
+		}
+
+        drawImageNative(image, x, y);
+    }
+
     public void drawString(String str, int x, int y, int anchor) {
         if (str == null) {
             throw new NullPointerException();
@@ -45,7 +67,15 @@ public class Graphics {
         drawStringNative(str, x, y);
     }
 
+    public void drawRect(int x, int y, int width, int height) {
+		if (width < 0 || height < 0) return;
+
+		drawRectNative(x, y, width, height);
+	}
+
     public native void fillRect(int x, int y, int width, int height);
+
+    public void setClip(int x, int y, int width, int height) {}
 
     public void setColor(int rgb) {
         color = 0xFF000000 | (rgb & 0x00FFFFFF);
@@ -53,6 +83,10 @@ public class Graphics {
 
     public void setFont(Font font) {
         this.font = font == null ? Font.getDefaultFont() : font;
+    }
+
+    Graphics() {
+        init();
     }
 
     Graphics(Image image) {
@@ -83,8 +117,10 @@ public class Graphics {
         return result;
     }
 
+    private native void drawImageNative(Image image, int x, int y);
     private native void drawStringNative(String str, int x, int y);
-
+    private native void drawRectNative(int x, int y, int width, int height);
+    private native void init();
     private native void init(Image image);
 
     private int color = -1;

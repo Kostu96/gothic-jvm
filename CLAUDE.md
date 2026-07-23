@@ -17,8 +17,9 @@ handful of native methods are implemented. The default workload is a J2ME-style 
 (`gothic3thebeginning/HG`).
 
 Standard/runtime library classes (`java.lang.Object`, `java.lang.String`, `javax.microedition.*`,
-…) are **real `.class` files loaded off the classpath**. Methods marked `ACC_NATIVE` in those
-class files are bound to C++ callbacks (see [Native callbacks](#native-callbacks)).
+…) are hand-maintained **`.java` sources** under `java_classes/`, compiled to `.class` by CMake and
+loaded off the classpath at runtime. Methods marked `ACC_NATIVE` in them are bound to C++ callbacks
+(see [Native callbacks](#native-callbacks)).
 
 - **Language:** C++23 (`cxx_std_23`)
 - **Build:** CMake (min 3.28), MSVC/Visual Studio solution generated under `build/`
@@ -47,36 +48,37 @@ depends). The only test, `tests/test_binary_reader.cpp`, builds its inputs in me
 
 ### Runtime data / classpath
 
-The classpath is assembled from the **current working directory**, not `resources/`:
+The classpath is assembled from the **current working directory**:
 
 1. `VM` ctor adds `<cwd>/java_classes` only (no eager class load; loading is deferred to `run`).
 2. `main.cpp` adds either the CLI-provided classpath entries, or (no extra args)
    `<cwd>/gothic3thebeginning`.
 
 On-disk assets:
-- `java_classes/` (repo root) — runtime bootstrap classes kept as **`.java` sources**, compiled
-  by CMake. The 39 explicitly listed sources: `com/kostu96/gjvm/ResourceInputStream`,
+- `java_classes/` (repo root) — **all** runtime library classes, kept as **`.java` sources** and
+  compiled by CMake into `build/java_classes/`. The 41 explicitly listed sources:
+  `com/kostu96/gjvm/io/ResourceInputStream`, `com/kostu96/gjvm/media/BasePlayer`,
   `com/nokia/mid/ui/FullCanvas`, `java/io/{ByteArrayInputStream,IOException}`,
   `java/lang/{Class,ClassNotFoundException,Exception,Integer,NullPointerException,Object,Runnable,Runtime,RuntimeException,String,StringBuffer,System,Thread,Throwable}`,
-  `javax/microedition/lcdui/{Canvas,Display,Command,CommandListener,Displayable,Font,Graphics,Image}`,
-  `javax/microedition/media/{Control,Controllable,MediaException,Player,PlayerListener}`,
+  `javax/microedition/lcdui/{Canvas,Command,CommandListener,Display,Displayable,Font,Graphics,Image}`,
+  `javax/microedition/media/{Control,Controllable,Manager,MediaException,Player,PlayerListener}`,
   `javax/microedition/midlet/{MIDlet,MIDletStateChangeException}`,
   `javax/microedition/rms/{InvalidRecordIDException,RecordStore,RecordStoreException,RecordStoreFullException,RecordStoreNotFoundException,RecordStoreNotOpenException}`.
-  (`ByteArrayInputStream`, `NullPointerException`, and `RuntimeException` are the newest additions;
-  `NullPointerException` backs the VM-synthesized NPE on a null virtual-call receiver.)
-- `resources/classes/` — vendored J2ME/MIDP/CLDC class library (real SDK `.class` files:
-  `java.lang.*`, `java.io.*`, `java.util.*`, `javax.microedition.*`, `com.sun.*`). Not on the
-  default runtime classpath; it is the source pool for the extra dependency classes that must
-  sit in `build/java_classes/` at runtime (see gaps).
-- `resources/gothic3thebeginning/` — MIDlet data: `HG.class` (default main class), obfuscated
-  single-letter classes (`a`, `a.class`, `b.class`, `c`, `d`, …), `.mid`/`.mdl`/`.lng` data,
-  `icon.png`/`s00.png`/`s01.png`, `META-INF/`.
-- `build/java_classes/` — javac output for `<cwd>/java_classes` lookups when running from
-  `build/`. Besides the compiled sources it also holds vendored dependency classes that the javac
-  step does **not** produce: the rest of `java/io/*` (e.g. `InputStream`, the superclass of the
-  now-compiled `ByteArrayInputStream`) and `java/util/*`. (`javax/microedition/media/*` and
-  `java/io/{IOException,ByteArrayInputStream}` are now compiled from `java_classes/`.)
-  `build/gothic3thebeginning/` mirrors the MIDlet data.
+  (`ResourceInputStream` now lives in the `com/kostu96/gjvm/io` package; `BasePlayer` and
+  `javax/microedition/media/Manager` are the newest additions.)
+- There is no vendored `.class` pool: every class the VM loads must be either a compiled
+  `java_classes/` source or supplied on the runtime classpath. Standard classes not yet ported to
+  `java_classes/` (the rest of `java/io/*` such as `InputStream`, and `java/util/*`) are currently
+  **missing** and are being added as `.java` sources over time — a MIDlet that needs one will fail
+  to load it until it is ported.
+- `gothic3thebeginning/` — the MIDlet workload (`HG.class` default main class, obfuscated
+  single-letter classes, `.mid`/`.mdl`/`.lng` data, `icon.png`/`s00.png`/`s01.png`, `META-INF/`).
+  **Never committed** — it is external game data that must be supplied from outside the repo at
+  `<cwd>/gothic3thebeginning`. `main.cpp` currently hardcodes it as the default classpath entry to
+  ease development; the plan is to pass the MIDlet path as a command-line argument instead.
+- `build/java_classes/` — the javac output for the `<cwd>/java_classes` classpath entry when running
+  from `build/`. `build/gothic3thebeginning/` is the externally-supplied MIDlet data placed next to
+  the binary by hand. Both live under the git-ignored `build/` tree.
 
 ## Directory layout
 
@@ -106,13 +108,10 @@ source/
   utils/
     binary_reader.{hpp,cpp}     # big-endian u8/u16/u32, string/bytes, bounds-checked
 tests/                          # CMakeLists.txt, test_binary_reader.cpp
-resources/
-  classes/                      # vendored J2ME/MIDP/CLDC standard library (.class)
-  gothic3thebeginning/          # MIDlet data
-java_classes/                   # runtime bootstrap classes (.java, compiled by CMake)
+java_classes/                   # all runtime library classes (.java, compiled by CMake); gothic3thebeginning MIDlet data is external
 third_party/gtest/              # vendored GoogleTest (submodule)
 third_party/stb/                # vendored stb_image (stb_image.h + stb_impl.cpp) for PNG decode
-build/                          # generated VS solution/projects + <cwd> copies of java_classes/gothic3thebeginning
+build/                          # generated VS solution/projects + build/java_classes (javac output) + externally-supplied gothic3thebeginning
 ```
 
 ## Architecture & flow
@@ -120,7 +119,7 @@ build/                          # generated VS solution/projects + <cwd> copies 
 > **Execution model: green threads on an explicit frame stack.** The interpreter is *stackless
 > and budgeted*: each `Thread` owns its own call stack (`std::vector<Frame>`), and
 > `Interpreter::run` executes a bounded number of instructions against the top frame and returns.
-> `VM::run` round-robins **every** live thread in `threads_`, giving each a 500-instruction quantum
+> `VM::run` round-robins **every** live thread in `threads_`, giving each a 400-instruction quantum
 > per loop iteration — a rudimentary cooperative scheduler. `Thread.start()` spawns additional
 > green threads (see [Native callbacks](#native-callbacks)); there is still no yielding, blocking,
 > priorities, or thread-state model.
@@ -139,7 +138,7 @@ build/                          # generated VS solution/projects + <cwd> copies 
 3. `VM::run()` is a **bootstrap state machine** driving a `while (true)` loop. It emplaces one
    `Thread` into `threads_`, loads `java/lang/String` (registered with the heap via
    `Heap::set_string_class` so literals can be interned) and the main class, then each iteration
-   runs *every* non-terminated thread for 500 instructions (`interpreter_.run(thread, 500)`) while
+   runs *every* non-terminated thread for 400 instructions (`interpreter_.run(thread, 400)`) while
    advancing phases on the main thread, each guarded by `Thread::is_terminated()` (frame stack
    drained empty): `Boot` inits `String`; `Phase1` inits the main class; `Phase2` `new_instance`s
    the MIDlet and pushes its `<init>()V`; `Phase3` pushes `startApp()V`; `Phase4` is terminal (its
@@ -224,7 +223,7 @@ build/                          # generated VS solution/projects + <cwd> copies 
   `push_frame` can reallocate and invalidate a held `Frame&` — the interpreter re-fetches
   `current_frame()` each instruction, and init-triggering opcodes rewind pc *before* calling
   `ensure_initialized`. The `VM` owns `threads_` (a `vector<unique_ptr<Thread>>`) and round-robins
-  all live threads 500 instructions at a time; `Thread.start` appends new threads via
+  all live threads 400 instructions at a time; `Thread.start` appends new threads via
   `VM::create_thread` (which `emplace_back`s into `threads_` — a latent reallocation hazard while
   `VM::run` iterates that vector).
 - **Runtime constant pool** (`runtime_constant_pool_entry.hpp`): `RuntimeClassInfo`,
@@ -234,10 +233,14 @@ build/                          # generated VS solution/projects + <cwd> copies 
   `invokeinterface`.
 - **Display** (`platform/display.{hpp,cpp}`): wraps SDL3. Ctor `Display(title, width, height,
   scale)` -> `SDL_Init(SDL_INIT_VIDEO)` + `SDL_CreateWindowAndRenderer` (window `width*scale` x
-  `height*scale`, vsync on); dtor tears it down. `width()`/`height()` return the **logical**
-  size. `process_events()` returns `false` on quit/close; `clear(r,g,b)`/`present()` drive the 2D
-  renderer; `renderer()` exposes it. Non-owned by `VM` (a `Display*` via `set_display`), so the
-  VM can run headless in tests.
+  `height*scale`, vsync on) and allocates a `framebuffer_` `SDL_Surface` at the **logical** size
+  (`SDL_PIXELFORMAT_ARGB8888`, i.e. 240x320) as the MIDP screen back buffer; dtor tears them down.
+  `width()`/`height()` return the **logical** size; `framebuffer()` exposes the back-buffer surface
+  (the screen `Graphics` renders into it — see [Windowing](#windowing)). `process_events()` returns
+  `false` on quit/close; `clear(r,g,b)`/`present()` drive the 2D renderer; `renderer()` exposes it.
+  Non-owned by `VM` (a `Display*` via `set_display`), so the VM can run headless in tests. **Gap:**
+  nothing yet blits `framebuffer_` to the window, and there is no interthread flag/mutex handoff
+  between the JVM thread (which paints into it) and the main thread (which presents the window).
 - **RecordStore / RecordStoreManager** (`platform/record_store.{hpp,cpp}`,
   `record_store_manager.{hpp,cpp}`): the MIDP RMS backend, owned by `VM`
   (`record_store_manager()`). `RecordStore(name)` holds a `vector<Record>` (each `Record` = a
@@ -255,14 +258,24 @@ present(); }`). SDL owns the main thread; the JVM runs concurrently and reads `w
 (set once in the ctor) race-free. On close, `main` calls `vm.request_stop()` (an atomic the
 interpreter loop checks each instruction, throwing `VmStopRequested` to unwind a MIDlet stuck in
 `startApp()`) and joins the JVM thread. Native callbacks reach the screen through `vm.display()`
-(Canvas size) and the MIDP `Graphics`/`Image` natives, which do **real** 2D drawing — but onto
-**offscreen** SDL surfaces, not the on-screen window: `Image.init` allocates an `SDL_Surface`
-(ARGB8888); `Graphics.init` wraps a surface in an `SDL_CreateSoftwareRenderer`;
-`Graphics.fillRect`/`drawStringNative` render into it; `Image.getRGB` reads pixels back. The
-window's own renderer is only cleared to black and presented each frame — nothing blits those
-offscreen surfaces to the window. `Display.java` models `getDisplay`/`setCurrent`, but
-`setCurrent` is a no-op and there is no `paint`/`repaint`/`serviceRepaints` dispatch model, so
-full MIDlet execution is not wired up.
+(Canvas size) and the MIDP `Graphics`/`Image` natives, which do **real** 2D drawing. There is now a
+**screen back buffer**: `Display` owns a `framebuffer_` `SDL_Surface` (logical 240x320, ARGB8888),
+and the screen `Graphics` — obtained in Java via the `Display.getGraphics()` singleton
+(`new Graphics()` -> native `Graphics.init()V`) — wraps that framebuffer in an
+`SDL_CreateSoftwareRenderer`. `Image.init` still allocates its own offscreen `SDL_Surface`
+(ARGB8888) and `Graphics.init(Image)` wraps *that* surface, so image-backed `Graphics` remain
+offscreen. `Graphics.fillRect`/`drawRectNative`/`drawStringNative`/`drawImageNative` render into
+whichever surface their `Graphics` is bound to; `Image.getRGB` reads pixels back. **Gap:** the
+window's own renderer is still only cleared to black and presented each frame — nothing blits
+`framebuffer_` (or any offscreen surface) to the window, and there is no interthread
+flag/mutex/condition-variable handoff between the painting JVM thread and the presenting main
+thread. `Canvas.paint(Ljavax/microedition/lcdui/Graphics;)V` is now an abstract method, and the
+repaint model lives **in Java** (not native): `Canvas.repaint()`/`repaint(IIII)` set a
+`repaintPending` flag, and `serviceRepaints()` — called synchronously on the running green thread —
+clears the flag and calls `paint(Display.getGraphics())` inline (no scheduler frame-push, no
+blocking). `Display.java` models `getDisplay`/`setCurrent`/`getGraphics`, but `setCurrent` only
+stores `current` (unused by C++) and a bare `repaint()` without a following `serviceRepaints()`
+never paints, so full MIDlet display is not wired up end-to-end.
 
 ### String modeling
 `java/lang/String` has a single `size:I` field plus a `StringNativeData` payload holding the raw
@@ -379,7 +392,7 @@ and hands it to the `ClassLoader` (`native_methods()`). Its ctor fills an
 descriptor)` returns a `const Callback*` (or `nullptr`). When `Class` parses an `ACC_NATIVE`
 method it stores that pointer in `Method::native_callback`. Callback functions are free functions
 in an anonymous namespace, named after their fully-qualified Java method. Registered:
-- `com/kostu96/gjvm/ResourceInputStream.init(Ljava/lang/String;)V` — loads the named resource off
+- `com/kostu96/gjvm/io/ResourceInputStream.init(Ljava/lang/String;)V` — loads the named resource off
   the classpath (`ClassLoader::load_resource`) into the instance payload; on failure sets a pending
   `java/io/IOException`. `.read()I` returns the next byte. Bound to private `native` methods called
   from a plain constructor.
@@ -407,8 +420,6 @@ in an anonymous namespace, named after their fully-qualified Java method. Regist
   receiver's `run()V` frame onto it.
 - `javax/microedition/lcdui/Canvas.getWidth()I` / `getHeight()I` — return the connected
   `Display`'s size (no null-display fallback; dereferences `vm.display()`).
-- `javax/microedition/lcdui/Canvas.repaint(IIII)V` / `serviceRepaints()V` — no-op stubs (bodies
-  commented out; no repaint dispatch model yet).
 - `javax/microedition/lcdui/Font.init()V` — no-op stub.
 - `javax/microedition/lcdui/Image.init(II)V` — allocates an offscreen `SDL_Surface` (ARGB8888);
   `Image.getWidth()I` / `Image.getHeight()I` return the surface's width/height;
@@ -416,12 +427,22 @@ in an anonymous namespace, named after their fully-qualified Java method. Regist
   `Image.createImage(Ljava/io/InputStream;)Ljavax/microedition/lcdui/Image;` decodes a PNG from a
   `ResourceInputStream` buffer via stb_image (RGBA->ARGB) and wraps it in an `SDL_Surface`, and
   `Image.createImage([BII)Ljavax/microedition/lcdui/Image;` does the same from a `byte[]` slice.
+- `javax/microedition/lcdui/Graphics.init()V` — the no-arg screen `Graphics`: wraps the `Display`
+  `framebuffer_` in an `SDL_CreateSoftwareRenderer` (bound via Java `new Graphics()` behind the
+  `Display.getGraphics()` singleton).
 - `javax/microedition/lcdui/Graphics.init(Ljavax/microedition/lcdui/Image;)V` — wraps the Image's
-  surface in an `SDL_CreateSoftwareRenderer`.
-- `javax/microedition/lcdui/Graphics.fillRect(IIII)V` / `drawStringNative(Ljava/lang/String;II)V`
-  — set the draw color from the Graphics `color:I` field, then `SDL_RenderFillRect` /
-  `SDL_RenderDebugText`. The public `Graphics.drawString(...)` computes anchor offsets in Java and
-  delegates to `drawStringNative`.
+  offscreen surface in an `SDL_CreateSoftwareRenderer`.
+- `javax/microedition/lcdui/Graphics.fillRect(IIII)V` / `drawRectNative(IIII)V` /
+  `drawStringNative(Ljava/lang/String;II)V` — set the draw color from the Graphics `color:I` field,
+  then `SDL_RenderFillRect` / `SDL_RenderRect` / `SDL_RenderDebugText`. The public
+  `Graphics.drawString(...)` computes anchor offsets in Java and delegates to `drawStringNative`;
+  `Graphics.drawRect(...)` guards negative sizes and delegates to `drawRectNative` (which also does
+  a debug `SDL_SaveBMP(..., "debug.bmp")` of the target surface on every call). `Graphics.setClip`
+  is a Java-level no-op.
+- `javax/microedition/lcdui/Graphics.drawImageNative(Ljavax/microedition/lcdui/Image;II)V` —
+  `SDL_BlitSurface`s the Image's surface onto the Graphics' target surface at `(x, y)`. The public
+  `Graphics.drawImage(...)` computes anchor offsets in Java but currently passes the un-adjusted
+  `x, y` to the native (the computed `lx/ly` are unused).
 - `javax/microedition/rms/RecordStore.openRecordStore(Ljava/lang/String;Z)Ljavax/microedition/rms/RecordStore;`
   (static) — creates a `RecordStore` instance whose payload points at the
   `RecordStoreManager`-owned store for that name; when the store is missing and `createIfNecessary`
@@ -443,7 +464,7 @@ in an anonymous namespace, named after their fully-qualified Java method. Regist
 ## Known gaps / WIP
 - **Rudimentary scheduler, no real concurrency model.** The interpreter is stackless (runs an
   instruction budget against a thread's frame stack) and `VM::run` round-robins every live thread
-  in `threads_` for a 500-instruction quantum each. `Thread.start` spawns green threads via
+  in `threads_` for a 400-instruction quantum each. `Thread.start` spawns green threads via
   `VM::create_thread`, but there are no `Thread` id/state enums, ready/blocked queues, yield
   points, priorities, or `java/lang/Thread` scheduling, and `monitorenter`/`monitorexit` never
   block. `VM::create_thread` `emplace_back`s into `threads_` while `VM::run` iterates it — a latent
@@ -467,18 +488,31 @@ in an anonymous namespace, named after their fully-qualified Java method. Regist
   null `invokevirtual`/`invokeinterface` receiver, which raises a real `java/lang/NullPointerException`.
   No `NoSuchMethodError`/`AbstractMethodError` modeling.
 - **No garbage collection;** the heap only grows.
+- **Screen framebuffer is never presented.** `Display` owns a `framebuffer_` `SDL_Surface` and the
+  screen `Graphics` (via `Display.getGraphics()`) paints into it on the JVM thread, but `main.cpp`
+  still only clears the window renderer to black and presents it — nothing blits `framebuffer_` to
+  the window, and there is no interthread flag/mutex/condition-variable handoff between the painting
+  JVM thread and the presenting main thread. A bare `Canvas.repaint()` (without a following
+  `serviceRepaints()`) never paints, since the Java repaint model only paints inside
+  `serviceRepaints()`.
 - **Unbound `native` methods** (throw "Failed to call native" if invoked):
   `java/lang/System.{identityHashCode,exit}`, `java/lang/Class.isInterface`. The
   `java/lang/String.indexOf(II)I` binding is registered but `String.java` declares no matching
   method, so it is dead. (`System.gc` is a Java-level no-op stub, not native.)
-- **The javac step compiles the 39 listed sources.** Remaining runtime dependency classes
-  (the rest of `java/io/*` such as `InputStream`, and `java/util/*`) are vendored copies from
-  `resources/classes/` that must sit in `build/java_classes/`; nothing in CMake copies them, so a
-  clean build tree would be missing them.
+- **The javac step compiles the 41 listed sources.** There is no vendored `.class` pool, so any
+  standard class not yet ported to `java_classes/` (the rest of `java/io/*` such as `InputStream`,
+  and `java/util/*`) is simply missing until it is added as a `.java` source or provided on the
+  runtime classpath. The MIDlet data (`gothic3thebeginning/`) is external and never committed;
+  `main.cpp` hardcodes it as the default classpath entry for now.
 - **Dead / TODO code:** `decode_modified_utf8` in `class_file.cpp` is defined but unused;
   `Class::resolve_constant` has an unreachable fallback block after its `std::visit` return; the
-  `overloaded` visitor TODO, empty `Font.init` body, commented `Graphics` translation offsets, a
-  shared "set color once" note in `fillRect`/`drawStringNative`, and a `Heap::new_interned_string`
+  `javax_microedition_lcdui_Canvas_repaint`/`serviceRepaints` native functions are still defined
+  and registered but unbound (their Java methods are no longer `native`); `Graphics.drawImage`
+  computes anchor offsets `lx/ly` but passes the un-adjusted `x, y` to `drawImageNative`;
+  `drawRectNative` dumps `debug.bmp` on every call; the color-channel unpack in
+  `fillRect`/`drawRectNative`/`drawStringNative` maps the ARGB `color:I` as `(r,g,b,a) = (A,R,G,B)`
+  (likely wrong order); and the `overloaded` visitor TODO, empty `Font.init` body, commented
+  `Graphics` translation offsets, a shared "set color once" note, and a `Heap::new_interned_string`
   interning TODO persist.
 - **Test coverage:** only `tests/test_binary_reader.cpp` (builds inputs in memory); no
   class-file/`Class` parsing or interpreter coverage.
