@@ -14,7 +14,7 @@
 
 namespace {
 
-void com_kostu96_gjvm_ResourceInputStream_init(VM& vm, Thread& thread) {
+void com_kostu96_gjvm_io_ResourceInputStream_init(VM& vm, Thread& thread) {
     auto& name_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& name_native = std::get<StringNativeData>(name_instance.native_payload);
     auto& stream_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
@@ -32,7 +32,7 @@ void com_kostu96_gjvm_ResourceInputStream_init(VM& vm, Thread& thread) {
     }
 }
 
-void com_kostu96_gjvm_ResourceInputStream_read(VM& vm, Thread& thread) {
+void com_kostu96_gjvm_io_ResourceInputStream_read(VM& vm, Thread& thread) {
     auto& stream_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& stream_native = std::get<ResourceInputStreamNativeData>(stream_instance.native_payload);
 
@@ -532,10 +532,10 @@ void javax_microedition_rms_RecordStore_setRecord(VM& vm, Thread& thread) {
 
 NativeMethods::NativeMethods() {
     storage_.insert({
-        { "com/kostu96/gjvm/ResourceInputStream.init(Ljava/lang/String;)V",
-           com_kostu96_gjvm_ResourceInputStream_init },
-        { "com/kostu96/gjvm/ResourceInputStream.read()I",
-           com_kostu96_gjvm_ResourceInputStream_read },
+        { "com/kostu96/gjvm/io/ResourceInputStream.init(Ljava/lang/String;)V",
+           com_kostu96_gjvm_io_ResourceInputStream_init },
+        { "com/kostu96/gjvm/io/ResourceInputStream.read()I",
+           com_kostu96_gjvm_io_ResourceInputStream_read },
 
         { "java/lang/Class.forName(Ljava/lang/String;)Ljava/lang/Class;", java_lang_Class_forName },
         { "java/lang/Class.getName()Ljava/lang/String;", java_lang_Class_getName },

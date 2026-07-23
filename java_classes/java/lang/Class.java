@@ -1,7 +1,6 @@
 package java.lang;
 
-import com.kostu96.gjvm.ResourceInputStream;
-
+import com.kostu96.gjvm.io.*;
 import java.io.*;
 
 /*

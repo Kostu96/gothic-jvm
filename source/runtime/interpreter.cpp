@@ -37,9 +37,6 @@ PrimitiveArrayData::ElementType primitive_array_element_type(std::string_view pr
 
 void Interpreter::run(Thread& thread, size_t num_instructions) {
     while (num_instructions-- > 0 && !thread.is_terminated()) {
-        if (vm_.stop_requested()) {
-            throw VmStopRequested{};
-        }
         auto& frame = thread.current_frame();
         frame.record_last_pc();
 
@@ -273,6 +270,17 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
             if (array == nullptr) {
                 // In a complete VM a null reference would raise NullPointerException.
                 throw std::runtime_error("iastore: object is not an array reference");
+            }
+            array->set(index, value);
+        } break;
+        case op_lastore: {
+            auto value = std::get<int64_t>(frame.pop_stack());
+            auto index = std::get<int32_t>(frame.pop_stack());
+            auto* reference = std::get<Object*>(frame.pop_stack());
+            auto* array = reference ? std::get_if<PrimitiveArrayData>(&reference->data) : nullptr;
+            if (array == nullptr) {
+                // In a complete VM a null reference would raise NullPointerException.
+                throw std::runtime_error("lastore: object is not an array reference");
             }
             array->set(index, value);
         } break;

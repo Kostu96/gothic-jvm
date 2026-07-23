@@ -1,4 +1,4 @@
-package com.kostu96.gjvm;
+package com.kostu96.gjvm.io;
 
 import java.io.*;
 

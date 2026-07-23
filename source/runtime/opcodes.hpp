@@ -64,6 +64,7 @@ constexpr uint8_t op_astore_1 = 0x4C;
 constexpr uint8_t op_astore_2 = 0x4D;
 constexpr uint8_t op_astore_3 = 0x4E;
 constexpr uint8_t op_iastore = 0x4F;
+constexpr uint8_t op_lastore = 0x50;
 
 constexpr uint8_t op_aastore = 0x53;
 constexpr uint8_t op_bastore = 0x54;

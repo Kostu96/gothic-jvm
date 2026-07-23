@@ -12,7 +12,7 @@ VM::VM() :
     class_loader_.add_classpath_entry(std::filesystem::current_path() / "java_classes");
 }
 
-void VM::run() {
+void VM::run(std::stop_token stop_token) {
     enum class BootsrapState {
         Boot,
         Phase1,
@@ -29,6 +29,10 @@ void VM::run() {
     Value main_obj;
 
     while (true) {
+        if (stop_token.stop_requested()) {
+            return;
+        }
+
         switch (bootstrap_state) {
             using enum BootsrapState;
         case Boot: {
@@ -63,7 +67,7 @@ void VM::run() {
 
         for (auto& thread : threads_) {
             if (!thread->is_terminated()) {
-                interpreter_.run(*thread, 500);
+                interpreter_.run(*thread, 400);
             }
         }
     }

@@ -1,7 +1,8 @@
 find_package(Java REQUIRED)
 
 set(JAVA_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/com/kostu96/gjvm/ResourceInputStream.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/com/kostu96/gjvm/io/ResourceInputStream.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/com/kostu96/gjvm/media/BasePlayer.java
 
     ${CMAKE_CURRENT_SOURCE_DIR}/com/nokia/mid/ui/FullCanvas.java
 
@@ -32,6 +33,7 @@ set(JAVA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Image.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/Control.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/Controllable.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/Manager.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/MediaException.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/Player.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/PlayerListener.java

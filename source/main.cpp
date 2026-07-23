@@ -13,6 +13,7 @@
 int main(int argc, char** argv) {
     try {
         const char* main_class = argc >= 2 ? argv[1] : "HG";
+        //const char* main_class = argc >= 2 ? argv[1] : "GLoftASCR";
 
         Display display("gothic-jvm", 240, 320, 2);
 
@@ -27,18 +28,16 @@ int main(int argc, char** argv) {
         }
         else {
             vm.class_loader().add_classpath_entry(std::filesystem::current_path() / "gothic3thebeginning");
+            //vm.class_loader().add_classpath_entry(std::filesystem::current_path() / "ac");
         }
 
         // Run the JVM off the main thread: SDL must own the thread that created
         // the window and pumps its events, and a MIDlet's startApp() may never
         // return. The window loop below drives events (and, in the future,
         // painting the current Canvas).
-        std::thread jvm_thread([&] {
+        std::jthread jvm_thread([&](std::stop_token stop_token) {
             try {
-                vm.run();
-            }
-            catch (const VmStopRequested&) {
-                // Window closed while the MIDlet was running; unwind quietly.
+                vm.run(std::move(stop_token));
             }
             catch (const std::exception& e) {
                 std::println(stderr, "{}", e.what());
@@ -49,10 +48,6 @@ int main(int argc, char** argv) {
             display.clear(0, 0, 0);
             display.present();
         }
-
-        // Ask the interpreter to unwind, then wait for the JVM thread to finish.
-        vm.request_stop();
-        jvm_thread.join();
     }
     catch (const std::exception& e) {
         std::println(stderr, "{}", e.what());

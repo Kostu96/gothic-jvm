@@ -6,14 +6,12 @@
 #include "runtime/native_methods.hpp"
 #include "runtime/thread.hpp"
 
-#include <atomic>
 #include <filesystem>
+#include <stop_token>
 #include <string>
 #include <string_view>
 
 class Display;
-
-struct VmStopRequested {};
 
 class VM {
 public:
@@ -24,7 +22,7 @@ public:
     void set_display(Display* display) noexcept { display_ = display; }
     Display* display() const noexcept { return display_; }
 
-    void run();
+    void run(std::stop_token stop_token);
 
     ClassLoader& class_loader() noexcept { return class_loader_; }
     Interpreter& interpreter() noexcept { return interpreter_; }
@@ -32,9 +30,6 @@ public:
     RecordStoreManager& record_store_manager() noexcept { return record_store_manager_; }
 
     Thread& create_thread();
-
-    void request_stop() noexcept { stop_requested_.store(true, std::memory_order_relaxed); }
-    bool stop_requested() const noexcept { return stop_requested_.load(std::memory_order_relaxed); }
 
     VM(const VM&) = delete;
     VM& operator=(const VM&) = delete;
@@ -47,5 +42,4 @@ private:
     RecordStoreManager record_store_manager_;
     std::vector<std::unique_ptr<Thread>> threads_;
     Interpreter interpreter_;
-    std::atomic<bool> stop_requested_{ false };
 };
