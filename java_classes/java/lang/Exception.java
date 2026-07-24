@@ -6,8 +6,8 @@ public class Exception extends Throwable {
         super();
     }
 
-    public Exception(String message) {
-        super(message);
+    public Exception(String s) {
+        super(s);
     }
 
 }

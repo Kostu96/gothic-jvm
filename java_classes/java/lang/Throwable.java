@@ -3,7 +3,7 @@ package java.lang;
 public class Throwable {
 
     public Throwable() {
-        // TODO(Kostu): impl
+        message = null;
     }
 
     public Throwable(String message) {
@@ -12,6 +12,15 @@ public class Throwable {
 
     public String getMessage() {
         return message;
+    }
+
+    public void printStackTrace() {
+        // TODO(Kostu): impl
+    }
+
+    public String toString() {
+        String s = getClass().getName();
+        return (message != null) ? (s + ": " + message) : s;
     }
 
     private String message;

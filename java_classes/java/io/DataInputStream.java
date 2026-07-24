@@ -1,17 +1,39 @@
 package java.io;
 
+import com.kostu96.gjvm.UnimplementedError;
+
 public class DataInputStream extends InputStream implements DataInput {
 
     public DataInputStream(InputStream in) {
         this.in = in;
     }
 
+    public int available() throws IOException {
+        throw new UnimplementedError();
+    }
+
     public void close() throws IOException {
         in.close();
     }
 
+    public void mark(int readLimit) {
+        throw new UnimplementedError();
+    }
+
+    public boolean markSupported() {
+        throw new UnimplementedError();
+    }
+
     public int read() throws IOException {
         return in.read();
+    }
+
+    public int read(byte[] b) throws IOException {
+        throw new UnimplementedError();
+    }
+
+    public int read(byte[] b, int off, int len) throws IOException {
+        throw new UnimplementedError();
     }
 
     public final boolean readBoolean() throws IOException {
@@ -148,6 +170,14 @@ public class DataInputStream extends InputStream implements DataInput {
         }
         // The number of chars produced may be less than utflen
         return new String(str, 0, strlen);
+    }
+
+    public void reset() throws IOException {
+        throw new UnimplementedError();
+    }
+
+    public long skip(long n) throws IOException {
+        throw new UnimplementedError();
     }
 
     public final int skipBytes(int n) throws IOException {

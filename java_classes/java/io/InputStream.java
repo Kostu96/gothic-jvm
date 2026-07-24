@@ -2,7 +2,13 @@ package java.io;
 
 public abstract class InputStream {
 
+    // public int available() throws IOException
+
     public void close() throws IOException {}
+
+    // void mark(int readLimit)
+
+    // boolean markSupported()
 
     public abstract int read() throws IOException;
 
@@ -41,6 +47,8 @@ public abstract class InputStream {
 
         return i;
     }
+
+    // void reset()
 
     public long skip(long n) throws IOException {
         long m = n;

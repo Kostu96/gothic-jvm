@@ -3,16 +3,22 @@ find_package(Java REQUIRED)
 set(JAVA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/com/kostu96/gjvm/io/ResourceInputStream.java
     ${CMAKE_CURRENT_SOURCE_DIR}/com/kostu96/gjvm/media/BasePlayer.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/com/kostu96/gjvm/UnimplementedError.java
 
     ${CMAKE_CURRENT_SOURCE_DIR}/com/nokia/mid/ui/FullCanvas.java
 
     ${CMAKE_CURRENT_SOURCE_DIR}/java/io/ByteArrayInputStream.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/io/ByteArrayOutputStream.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/io/DataInput.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/io/DataInputStream.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/io/OutputStream.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/io/InputStream.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/io/IOException.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/io/OutputStream.java
+
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Class.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/ClassNotFoundException.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Error.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Exception.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Integer.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/NullPointerException.java
@@ -25,6 +31,8 @@ set(JAVA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/System.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Thread.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Throwable.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/VirtualMachineError.java
+
     ${CMAKE_CURRENT_SOURCE_DIR}/java/util/Hashtable.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/util/Random.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/util/Stack.java
@@ -38,14 +46,17 @@ set(JAVA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Font.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Graphics.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Image.java
+
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/Control.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/Controllable.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/Manager.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/MediaException.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/Player.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/media/PlayerListener.java
+    
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/midlet/MIDlet.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/midlet/MIDletStateChangeException.java
+    
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/rms/InvalidRecordIDException.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/rms/RecordStore.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/rms/RecordStoreException.java
