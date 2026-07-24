@@ -36,10 +36,11 @@ a VM to bring that MIDlet to life.
   and in-memory MIDP RMS record stores).
 - An SDL3 window with a 2D renderer that opens on startup, plus a MIDP `Canvas` repaint model: the
   abstract `Canvas.paint(Graphics)` is driven from Java (`repaint()` sets a flag; `serviceRepaints()`
-  synchronously calls `paint(Display.getGraphics())` on the running green thread). The drawing
-  primitives (`Graphics.fillRect`/`drawRect`/`drawString`/`drawImage`, `Image` surfaces) do real
-  work, but they render into an **offscreen** framebuffer that is not yet blitted to the window
-  (which still just clears each frame and handles the window-close event).
+  synchronously calls `paint(Display.getGraphics())` on the running green thread, then flushes). The
+  drawing primitives (`Graphics.fillRect`/`drawRect`/`drawString`/`drawImage`, `Image` surfaces) do
+  real work into a 240×320 framebuffer, which is now **blitted to the window** via an interthread
+  flush/render handoff (`Canvas.flush()` → `Display::flush()` → `Display::render()`). The MIDlet
+  loading screen is visible.
 
 ## Getting started
 
@@ -109,8 +110,10 @@ the build compiles `java_classes/` into `build/java_classes/` for you, but you m
    live thread a quantum at a time (a rudimentary cooperative green-thread scheduler), and
    `Thread.start` spawns more. Method calls and class `<clinit>`s push frames instead of recursing
    in C++.
-4. `main` runs the window event/render loop until the user closes the window, then asks the VM to
-   stop and joins the background thread.
+4. `main` runs the window event/render loop (`clear` → `render` → `present`, where `render` blits
+   the framebuffer to the window) until the user closes the window, then — via the `std::jthread`
+   destructor — requests stop through a `std::stop_token` the VM polls, and joins the background
+   thread.
 
 ```mermaid
 flowchart LR
@@ -177,11 +180,13 @@ Known gaps:
   are simply absent and are being added as `.java` sources over time — a MIDlet that needs one will
   fail to load it until then. The `gothic3thebeginning/` MIDlet data is external, never committed,
   and must be supplied at `<cwd>/gothic3thebeginning`.
-- **MIDP graphics are offscreen.** `Display` owns a 240×320 framebuffer surface and the abstract
-  `Canvas.paint(Graphics)` is now driven from Java via `repaint()`/`serviceRepaints()`, so `paint`
-  runs and the `Graphics`/`Image` natives draw into that framebuffer. But nothing blits it to the
-  window yet (there is no interthread present/handoff), so the screen stays black; a bare
-  `repaint()` without `serviceRepaints()` also never paints.
+- **MIDP graphics presentation is wired up but rough.** `Display` owns a 240×320 framebuffer
+  surface; the abstract `Canvas.paint(Graphics)` is driven from Java via
+  `repaint()`/`serviceRepaints()`, which paints and then flushes so `Display::render()` blits the
+  framebuffer to the window. Rough edges remain: `render()` reads framebuffer pixels without
+  locking against the painting thread; only `fillRect` flushes its software renderer, so
+  `drawRect`/`drawString` output may not land; and a bare `repaint()` without `serviceRepaints()`
+  never paints.
 - **Test coverage** is limited to the binary reader.
 
 Roadmap:
@@ -192,8 +197,9 @@ Roadmap:
   (NPE, `ArithmeticException`, `ArrayStoreException`, …) instead of throwing `std::runtime_error`.
 - Implement `super`-calls (`ACC_SUPER`) and `checkcast`/`instanceof` type checks.
 - Parse `Float`/`Double` constants and widen opcode coverage.
-- Blit the offscreen MIDP framebuffer to the window (an interthread present/handoff between the
-  painting JVM thread and the presenting main thread) so `paint()` output becomes visible.
+- Harden framebuffer presentation (lock or double-buffer the framebuffer against the painting
+  thread, flush the software renderer for all `Graphics` primitives, and free the presentation
+  texture on shutdown).
 - Bind the remaining `native` methods, start on garbage collection, and restore parser/interpreter
   test coverage.
 

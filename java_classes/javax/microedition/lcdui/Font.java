@@ -30,11 +30,11 @@ public class Font {
     }
 
     public int getBaselinePosition() {
-        return 14;
+        return 3;
     }
 
     public int getHeight() {
-        return 16;
+        return 10;
     }
 
     public int stringWidth(String str) {

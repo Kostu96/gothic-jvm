@@ -3,14 +3,6 @@ package java.lang;
 import com.kostu96.gjvm.io.*;
 import java.io.*;
 
-/*
- * Instances of the class Class represent classes and interfaces in a running Java application.
- * Every array also belongs to a class that is reflected as a Class object that is shared by all arrays
- * with the same element type and number of dimensions.
- * 
- * Class has no public constructor. Instead Class objects are constructed automatically by the Java Virtual Machine
- * as classes are loaded.
- */
 public final class Class {
 
     public static native Class forName(String name) throws ClassNotFoundException;
@@ -18,7 +10,6 @@ public final class Class {
     public native String getName();
 
     public InputStream getResourceAsStream(String name) {
-        //System.out.println(this.get);
         try {
             if (name.length() > 0 && name.charAt(0) == '/') {
                 /* Absolute format */

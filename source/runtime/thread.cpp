@@ -5,8 +5,8 @@
 #include <print>
 
 void Thread::push_frame(const Method& method, std::span<const Value> args) {
-    std::println("Thread: pushing new frame {}.{}{} with {} argument(s)",
-        method.owner.this_name(), method.name, method.descriptor, args.size());
+    //std::println("Thread: pushing new frame {}.{}{} with {} argument(s)",
+    //    method.owner.this_name(), method.name, method.descriptor, args.size());
 
     Frame frame(method.owner, method);
 

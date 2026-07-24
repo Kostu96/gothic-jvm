@@ -22,10 +22,13 @@ public abstract class Canvas extends Displayable {
         if (repaintPending) {
             repaintPending = false;
             paint(Display.getGraphics());
+            flush();
         }
     }
 
     public void setFullScreenMode(boolean mode) {}
     
+    private native void flush();
+
     private boolean repaintPending = false;
 }

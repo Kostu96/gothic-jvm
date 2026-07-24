@@ -84,13 +84,13 @@ On-disk assets:
 
 ```
 source/
-  main.cpp                      # entry: open Display; VM vm; add classpath; run vm.run on a thread; window loop
+  main.cpp                      # entry: open Display; VM vm; add classpath; run vm.run on a jthread; window loop (clear/render/present)
   class_loader/
     class_file.{hpp,cpp}        # ClassFile: raw parse of constant pool, fields, methods, Code attr, MUTF-8 decode
     constant_pool_entry.hpp     # ConstantPoolEntry variant (Utf8/Integer/Long/Class/String/refs/NameAndType)
     class_loader.{hpp,cpp}      # ClassLoader: classpath resolve + cache; array classes via load_array
   platform/
-    display.{hpp,cpp}           # Display: owns SDL_Window + SDL_Renderer; process_events/clear/present; width/height
+    display.{hpp,cpp}           # Display: owns SDL_Window + SDL_Renderer + framebuffer_ surface; process_events/clear/present; flush/render blit framebuffer -> window
     record_store.{hpp,cpp}      # RecordStore: named in-memory record list (add_record/size) backing MIDP RMS
     record_store_manager.{hpp,cpp} # RecordStoreManager: name -> RecordStore map; open_record_store(name, create)
   runtime/
@@ -128,26 +128,29 @@ build/                          # generated VS solution/projects + build/java_cl
    logical, scale 2 -> 480x640 window + renderer), default-constructs a `VM`, calls
    `set_main_class` and `set_display`, and configures the classpath (default main class `HG`;
    no extra args -> classpath `<cwd>/gothic3thebeginning`, else each extra arg is an entry). It
-   runs `vm.run()` on a **background `std::thread`** (SDL must own the thread that created the
-   window/pumps events, and a MIDlet's `startApp()` may never return) and spins the window
-   event/render loop on the main thread (`process_events` -> `clear` -> `present`). On window
-   close it calls `vm.request_stop()` and joins the JVM thread, which swallows `VmStopRequested`
-   and prints other exceptions to stderr.
+   runs `vm.run(stop_token)` on a **background `std::jthread`** (SDL must own the thread that
+   created the window/pumps events, and a MIDlet's `startApp()` may never return) and spins the
+   window event/render loop on the main thread (`process_events` -> `clear(255,255,255)` ->
+   `render()` -> `present()`, where `render()` blits the framebuffer to the window). On window
+   close, the `std::jthread` destructor requests stop (via the `std::stop_token` `VM::run` polls)
+   and joins the JVM thread; the lambda prints any escaping exception to stderr.
 2. `VM` ctor wires its owned `NativeMethods` into the `ClassLoader` and adds `<cwd>/java_classes`.
    It does **not** eagerly load or initialize any class.
-3. `VM::run()` is a **bootstrap state machine** driving a `while (true)` loop. It emplaces one
-   `Thread` into `threads_`, loads `java/lang/String` (registered with the heap via
+3. `VM::run(std::stop_token)` is a **bootstrap state machine** driving a `while (true)` loop that
+   returns as soon as `stop_token.stop_requested()` (checked at the top of each iteration). It
+   emplaces one `Thread` into `threads_`, loads `java/lang/String` (registered with the heap via
    `Heap::set_string_class` so literals can be interned) and the main class, then each iteration
    runs *every* non-terminated thread for 400 instructions (`interpreter_.run(thread, 400)`) while
    advancing phases on the main thread, each guarded by `Thread::is_terminated()` (frame stack
    drained empty): `Boot` inits `String`; `Phase1` inits the main class; `Phase2` `new_instance`s
    the MIDlet and pushes its `<init>()V`; `Phase3` pushes `startApp()V`; `Phase4` is terminal (its
    `return` is commented out, so the loop keeps spinning to service any threads spawned via
-   `Thread.start`). Class init and lifecycle entries are scheduled as pushed frames, not
-   synchronous C++ calls.
+   `Thread.start` until stop is requested). Class init and lifecycle entries are scheduled as
+   pushed frames, not synchronous C++ calls.
 4. `Interpreter` holds a `VM&`. `run(Thread&, num_instructions)` executes up to that many opcodes
-   against `thread.current_frame()`, checking `vm.stop_requested()` each step and stopping early
-   if the thread terminates. Method calls do **not** recurse in C++: `invoke(Thread&, const
+   against `thread.current_frame()`, stopping early if the thread terminates (stop is polled by
+   `VM::run` between 400-instruction quanta, not per-instruction). Method calls do **not** recurse
+   in C++: `invoke(Thread&, const
    Method&)` runs a native (`Method::native_callback` with `thread.current_frame()`), or for
    bytecode pops `arg_slot_widths.size()` operand entries and `Thread::push_frame`s a new `Frame`.
    `invokevirtual`/`invokeinterface` route through `virtual_dispatch`, which peeks the receiver,
@@ -238,9 +241,14 @@ build/                          # generated VS solution/projects + build/java_cl
   `width()`/`height()` return the **logical** size; `framebuffer()` exposes the back-buffer surface
   (the screen `Graphics` renders into it — see [Windowing](#windowing)). `process_events()` returns
   `false` on quit/close; `clear(r,g,b)`/`present()` drive the 2D renderer; `renderer()` exposes it.
-  Non-owned by `VM` (a `Display*` via `set_display`), so the VM can run headless in tests. **Gap:**
-  nothing yet blits `framebuffer_` to the window, and there is no interthread flag/mutex handoff
-  between the JVM thread (which paints into it) and the main thread (which presents the window).
+  Non-owned by `VM` (a `Display*` via `set_display`), so the VM can run headless in tests.
+  **Framebuffer -> window handoff:** `flush()` (called on the JVM thread via the `Canvas.flush()`
+  native) sets `fb_ready_` under `fb_mutex_` and notifies `fb_cv_`; `render()` (called on the main
+  thread each window-loop iteration) waits up to 16ms on `fb_cv_`, and when `fb_ready_` (re)creates
+  an `SDL_Texture` from `framebuffer_` (cached in a function-local `static`), then
+  `SDL_RenderTexture`s it into the window renderer scaled to `width_*scale_` x `height_*scale_`.
+  Only the `fb_ready_` flag is mutex-guarded — the framebuffer *pixels* are read (texture upload)
+  without synchronizing against the painting JVM thread, so a partially-painted frame is possible.
 - **RecordStore / RecordStoreManager** (`platform/record_store.{hpp,cpp}`,
   `record_store_manager.{hpp,cpp}`): the MIDP RMS backend, owned by `VM`
   (`record_store_manager()`). `RecordStore(name)` holds a `vector<Record>` (each `Record` = a
@@ -252,30 +260,36 @@ build/                          # generated VS solution/projects + build/java_cl
 
 ### Windowing
 `main.cpp` constructs one stack `Display` (240x320 logical, scale 2 -> 480x640 window, title
-`gothic-jvm`), wires it in with `set_display`, runs `vm.run` on a background `std::thread`, and
-spins the window event/render loop on the **main thread** (`while (process_events()) { clear(0,0,0);
-present(); }`). SDL owns the main thread; the JVM runs concurrently and reads `width_`/`height_`
-(set once in the ctor) race-free. On close, `main` calls `vm.request_stop()` (an atomic the
-interpreter loop checks each instruction, throwing `VmStopRequested` to unwind a MIDlet stuck in
-`startApp()`) and joins the JVM thread. Native callbacks reach the screen through `vm.display()`
-(Canvas size) and the MIDP `Graphics`/`Image` natives, which do **real** 2D drawing. There is now a
-**screen back buffer**: `Display` owns a `framebuffer_` `SDL_Surface` (logical 240x320, ARGB8888),
-and the screen `Graphics` — obtained in Java via the `Display.getGraphics()` singleton
-(`new Graphics()` -> native `Graphics.init()V`) — wraps that framebuffer in an
-`SDL_CreateSoftwareRenderer`. `Image.init` still allocates its own offscreen `SDL_Surface`
-(ARGB8888) and `Graphics.init(Image)` wraps *that* surface, so image-backed `Graphics` remain
-offscreen. `Graphics.fillRect`/`drawRectNative`/`drawStringNative`/`drawImageNative` render into
-whichever surface their `Graphics` is bound to; `Image.getRGB` reads pixels back. **Gap:** the
-window's own renderer is still only cleared to black and presented each frame — nothing blits
-`framebuffer_` (or any offscreen surface) to the window, and there is no interthread
-flag/mutex/condition-variable handoff between the painting JVM thread and the presenting main
-thread. `Canvas.paint(Ljavax/microedition/lcdui/Graphics;)V` is now an abstract method, and the
-repaint model lives **in Java** (not native): `Canvas.repaint()`/`repaint(IIII)` set a
-`repaintPending` flag, and `serviceRepaints()` — called synchronously on the running green thread —
-clears the flag and calls `paint(Display.getGraphics())` inline (no scheduler frame-push, no
-blocking). `Display.java` models `getDisplay`/`setCurrent`/`getGraphics`, but `setCurrent` only
-stores `current` (unused by C++) and a bare `repaint()` without a following `serviceRepaints()`
-never paints, so full MIDlet display is not wired up end-to-end.
+`gothic-jvm`), wires it in with `set_display`, runs `vm.run(stop_token)` on a background
+`std::jthread`, and spins the window event/render loop on the **main thread**
+(`while (process_events()) { clear(255,255,255); render(); present(); }`). SDL owns the main thread;
+the JVM runs concurrently and reads `width_`/`height_` (set once in the ctor) race-free. On close,
+the `std::jthread` destructor requests stop through the `std::stop_token` that `VM::run` polls
+between 400-instruction quanta, then joins the JVM thread (no exception-based unwind anymore).
+Native callbacks reach the screen through `vm.display()` (Canvas size) and the MIDP
+`Graphics`/`Image` natives, which do **real** 2D drawing. `Display` owns a `framebuffer_`
+`SDL_Surface` (logical 240x320, ARGB8888) as the screen back buffer, and the screen `Graphics` —
+obtained in Java via the `Display.getGraphics()` singleton (`new Graphics()` -> native
+`Graphics.init()V`) — wraps that framebuffer in an `SDL_CreateSoftwareRenderer`. `Image.init`
+allocates its own offscreen `SDL_Surface` (ARGB8888) and `Graphics.init(Image)` wraps *that*
+surface, so image-backed `Graphics` remain offscreen. `Graphics.fillRect`/`drawRectNative`/
+`drawStringNative`/`drawImageNative` render into whichever surface their `Graphics` is bound to;
+`Image.getRGB` reads pixels back.
+
+**The framebuffer is now presented to the window.** The repaint model lives **in Java**:
+`Canvas.paint(Ljavax/microedition/lcdui/Graphics;)V` is abstract; `Canvas.repaint()`/`repaint(IIII)`
+set a `repaintPending` flag; `serviceRepaints()` — called synchronously on the running green thread
+— clears the flag, calls `paint(Display.getGraphics())` inline (no scheduler frame-push, no
+blocking), and then calls the private native `Canvas.flush()`. `Canvas.flush()` -> `Display::flush()`
+raises `fb_ready_` (under `fb_mutex_`) and notifies `fb_cv_`; the main thread's `Display::render()`
+picks that up and blits `framebuffer_` to the window (texture upload + scaled `SDL_RenderTexture`).
+This is the interthread present/handoff that was previously missing, and it is what makes the MIDlet
+loading screen visible. `Display.java` still models `getDisplay`/`setCurrent`/`getGraphics` with
+`setCurrent` only storing `current` (unused by C++), and a bare `repaint()` without a following
+`serviceRepaints()` still never paints (the paint+flush only happen inside `serviceRepaints()`).
+Remaining rough edges: `render()` reads framebuffer pixels without locking against the painting
+thread, and only `fillRect` flushes its software renderer (`SDL_FlushRenderer`) — `drawRectNative`/
+`drawStringNative` queue commands without flushing, so their output may not land in the framebuffer.
 
 ### String modeling
 `java/lang/String` has a single `size:I` field plus a `StringNativeData` payload holding the raw
@@ -420,6 +434,9 @@ in an anonymous namespace, named after their fully-qualified Java method. Regist
   receiver's `run()V` frame onto it.
 - `javax/microedition/lcdui/Canvas.getWidth()I` / `getHeight()I` — return the connected
   `Display`'s size (no null-display fallback; dereferences `vm.display()`).
+- `javax/microedition/lcdui/Canvas.flush()V` — private native called at the end of Java
+  `serviceRepaints()`; `vm.display()->flush()` signals the main thread to blit the framebuffer to
+  the window (see [Windowing](#windowing)).
 - `javax/microedition/lcdui/Font.init()V` — no-op stub.
 - `javax/microedition/lcdui/Image.init(II)V` — allocates an offscreen `SDL_Surface` (ARGB8888);
   `Image.getWidth()I` / `Image.getHeight()I` return the surface's width/height;
@@ -434,11 +451,16 @@ in an anonymous namespace, named after their fully-qualified Java method. Regist
   offscreen surface in an `SDL_CreateSoftwareRenderer`.
 - `javax/microedition/lcdui/Graphics.fillRect(IIII)V` / `drawRectNative(IIII)V` /
   `drawStringNative(Ljava/lang/String;II)V` — set the draw color from the Graphics `color:I` field,
-  then `SDL_RenderFillRect` / `SDL_RenderRect` / `SDL_RenderDebugText`. The public
-  `Graphics.drawString(...)` computes anchor offsets in Java and delegates to `drawStringNative`;
-  `Graphics.drawRect(...)` guards negative sizes and delegates to `drawRectNative` (which also does
-  a debug `SDL_SaveBMP(..., "debug.bmp")` of the target surface on every call). `Graphics.setClip`
-  is a Java-level no-op.
+  then `SDL_RenderFillRect` / `SDL_RenderRect` / `SDL_RenderDebugText`. `fillRect` then calls
+  `SDL_FlushRenderer` so its queued command actually lands in the target surface (the fix that made
+  screen clears work); `drawRectNative`/`drawStringNative` do **not** flush yet, so their output may
+  not appear. `fillRect` unpacks `color:I` correctly as `(R,G,B,A) = (>>16, >>8, &0xFF, >>24)`;
+  `drawRectNative`/`drawStringNative` still use the wrong `(>>24, >>16, >>8, &0xFF)` order (`color`
+  is `0xAARRGGBB` with alpha forced to `0xFF` by Java `setColor`). The public `Graphics.drawString(...)`
+  computes anchor offsets in Java and delegates to `drawStringNative`; `Graphics.drawRect(...)` guards
+  negative sizes and delegates to `drawRectNative` (which also does a debug
+  `SDL_SaveBMP(..., "debug.bmp")` of the target surface on every call). `Graphics.setClip` is a
+  Java-level no-op.
 - `javax/microedition/lcdui/Graphics.drawImageNative(Ljavax/microedition/lcdui/Image;II)V` —
   `SDL_BlitSurface`s the Image's surface onto the Graphics' target surface at `(x, y)`. The public
   `Graphics.drawImage(...)` computes anchor offsets in Java but currently passes the un-adjusted
@@ -469,7 +491,8 @@ in an anonymous namespace, named after their fully-qualified Java method. Regist
   points, priorities, or `java/lang/Thread` scheduling, and `monitorenter`/`monitorexit` never
   block. `VM::create_thread` `emplace_back`s into `threads_` while `VM::run` iterates it — a latent
   vector-reallocation hazard — and `Phase4`'s `return` is commented out, so `run()` spins forever
-  (never returning on its own even after `startApp` unwinds).
+  servicing threads until the `std::stop_token` is signaled (it never returns on its own after
+  `startApp` unwinds).
 - **Lazy class init caveats:** `InitState::Failed` is effectively unreachable; interfaces are not
   initialized (only the `super_` chain); no cross-thread init locking. An interface that carries a
   `<clinit>` is rejected at parse time (`Class` throws). `VM::run`'s bootstrap dereferences
@@ -488,13 +511,16 @@ in an anonymous namespace, named after their fully-qualified Java method. Regist
   null `invokevirtual`/`invokeinterface` receiver, which raises a real `java/lang/NullPointerException`.
   No `NoSuchMethodError`/`AbstractMethodError` modeling.
 - **No garbage collection;** the heap only grows.
-- **Screen framebuffer is never presented.** `Display` owns a `framebuffer_` `SDL_Surface` and the
-  screen `Graphics` (via `Display.getGraphics()`) paints into it on the JVM thread, but `main.cpp`
-  still only clears the window renderer to black and presents it — nothing blits `framebuffer_` to
-  the window, and there is no interthread flag/mutex/condition-variable handoff between the painting
-  JVM thread and the presenting main thread. A bare `Canvas.repaint()` (without a following
-  `serviceRepaints()`) never paints, since the Java repaint model only paints inside
-  `serviceRepaints()`.
+- **Framebuffer presentation is wired up but rough.** `Display::flush()` (JVM thread, via the
+  `Canvas.flush()` native at the end of `serviceRepaints()`) hands the framebuffer to
+  `Display::render()` (main thread) through `fb_mutex_`/`fb_cv_`/`fb_ready_`, which blits it to the
+  window — the MIDlet loading screen is now visible. Rough edges: `render()` reads framebuffer
+  pixels without locking against the painting thread (only the `fb_ready_` flag is guarded), so
+  torn frames are possible; the presentation texture is cached in a function-local `static` (one
+  per process, never freed on shutdown); only `fillRect` calls `SDL_FlushRenderer`, so
+  `drawRectNative`/`drawStringNative` may not land; and a bare `Canvas.repaint()` without a
+  following `serviceRepaints()` still never paints (paint+flush only happen inside
+  `serviceRepaints()`).
 - **Unbound `native` methods** (throw "Failed to call native" if invoked):
   `java/lang/System.{identityHashCode,exit}`, `java/lang/Class.isInterface`. The
   `java/lang/String.indexOf(II)I` binding is registered but `String.java` declares no matching
@@ -509,9 +535,10 @@ in an anonymous namespace, named after their fully-qualified Java method. Regist
   `javax_microedition_lcdui_Canvas_repaint`/`serviceRepaints` native functions are still defined
   and registered but unbound (their Java methods are no longer `native`); `Graphics.drawImage`
   computes anchor offsets `lx/ly` but passes the un-adjusted `x, y` to `drawImageNative`;
-  `drawRectNative` dumps `debug.bmp` on every call; the color-channel unpack in
-  `fillRect`/`drawRectNative`/`drawStringNative` maps the ARGB `color:I` as `(r,g,b,a) = (A,R,G,B)`
-  (likely wrong order); and the `overloaded` visitor TODO, empty `Font.init` body, commented
+  `drawRectNative` dumps `debug.bmp` on every call; the color-channel unpack is now correct in
+  `fillRect` (`(R,G,B,A) = (>>16, >>8, &0xFF, >>24)`) but `drawRectNative`/`drawStringNative` still
+  map the `color:I` as `(A,R,G,B)` (wrong order); and the `overloaded` visitor TODO, empty
+  `Font.init` body, commented
   `Graphics` translation offsets, a shared "set color once" note, and a `Heap::new_interned_string`
   interning TODO persist.
 - **Test coverage:** only `tests/test_binary_reader.cpp` (builds inputs in memory); no

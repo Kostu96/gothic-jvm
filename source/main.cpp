@@ -13,8 +13,6 @@
 int main(int argc, char** argv) {
     try {
         const char* main_class = argc >= 2 ? argv[1] : "HG";
-        //const char* main_class = argc >= 2 ? argv[1] : "GLoftASCR";
-
         Display display("gothic-jvm", 240, 320, 2);
 
         VM vm;
@@ -28,7 +26,6 @@ int main(int argc, char** argv) {
         }
         else {
             vm.class_loader().add_classpath_entry(std::filesystem::current_path() / "gothic3thebeginning");
-            //vm.class_loader().add_classpath_entry(std::filesystem::current_path() / "ac");
         }
 
         // Run the JVM off the main thread: SDL must own the thread that created
@@ -45,7 +42,8 @@ int main(int argc, char** argv) {
         });
 
         while (display.process_events()) {
-            display.clear(0, 0, 0);
+            display.clear(255, 255, 255);
+            display.render();
             display.present();
         }
     }

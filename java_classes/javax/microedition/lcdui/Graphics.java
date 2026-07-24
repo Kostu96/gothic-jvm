@@ -11,26 +11,29 @@ public class Graphics {
 	public static final int BASELINE = 64;
 
     public void drawImage(Image image, int x, int y, int anchor) {
-        int lx;
 		if ((anchor & RIGHT) != 0) {
-			lx = x - image.getWidth();
+			x -= image.getWidth();
 		} else if ((anchor & HCENTER) != 0) {
-			lx = x - image.getWidth() / 2;
-		} else {
-			lx = x;
+			x -= image.getWidth() / 2;
 		}
 
-		int ly;
 		if ((anchor & BOTTOM) != 0) {
-			ly = y - image.getHeight();
+			y -= image.getHeight();
 		} else if ((anchor & VCENTER) != 0) {
-			ly = y - image.getHeight() / 2;
-		} else {
-			ly = y;
+			y -= image.getHeight() / 2;
 		}
 
         drawImageNative(image, x, y);
     }
+
+    public void drawRect(int x, int y, int width, int height) {
+		if (width < 0 || height < 0) return;
+
+		drawRectNative(x, y, width, height);
+	}
+
+    public native void drawRegion(Image image, int x_src, int y_src, int width, int height,
+						          int transform, int x_dst, int y_dst, int anchor);
 
     public void drawString(String str, int x, int y, int anchor) {
         if (str == null) {
@@ -66,12 +69,6 @@ public class Graphics {
 
         drawStringNative(str, x, y);
     }
-
-    public void drawRect(int x, int y, int width, int height) {
-		if (width < 0 || height < 0) return;
-
-		drawRectNative(x, y, width, height);
-	}
 
     public native void fillRect(int x, int y, int width, int height);
 

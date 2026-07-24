@@ -975,8 +975,8 @@ void Interpreter::virtual_dispatch(Thread& thread, const Method& resolved_method
 
 void Interpreter::invoke(Thread& thread, const Method& method) {
     if (method.is_native) {
-        std::println(
-            "Interpreter: executing native {}.{}{}", method.owner.this_name(), method.name, method.descriptor);
+        //std::println(
+        //    "Interpreter: executing native {}.{}{}", method.owner.this_name(), method.name, method.descriptor);
         if (method.native_callback) {
             (*(method.native_callback))(vm_, thread);
         }

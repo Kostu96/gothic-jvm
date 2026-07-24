@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <mutex>
 
 struct SDL_Renderer;
 struct SDL_Surface;
@@ -22,12 +23,18 @@ public:
     SDL_Renderer* renderer() const noexcept { return renderer_; }
     SDL_Surface* framebuffer() const noexcept { return framebuffer_; }
 
+    void flush();
+    void render();
+
     Display(const Display&) = delete;
     Display& operator=(const Display&) = delete;
 private:
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
     SDL_Surface* framebuffer_ = nullptr;
+    std::mutex fb_mutex_;
+    std::condition_variable fb_cv_;
+    bool fb_ready_ = false;
     int width_ = 0;
     int height_ = 0;
     int scale_ = 1;

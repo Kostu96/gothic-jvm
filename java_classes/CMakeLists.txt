@@ -7,6 +7,9 @@ set(JAVA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/com/nokia/mid/ui/FullCanvas.java
 
     ${CMAKE_CURRENT_SOURCE_DIR}/java/io/ByteArrayInputStream.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/io/DataInput.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/io/DataInputStream.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/io/InputStream.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/io/IOException.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Class.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/ClassNotFoundException.java
@@ -22,6 +25,10 @@ set(JAVA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/System.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Thread.java
     ${CMAKE_CURRENT_SOURCE_DIR}/java/lang/Throwable.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/util/Hashtable.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/util/Random.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/util/Stack.java
+    ${CMAKE_CURRENT_SOURCE_DIR}/java/util/Vector.java
 
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Canvas.java
     ${CMAKE_CURRENT_SOURCE_DIR}/javax/microedition/lcdui/Command.java

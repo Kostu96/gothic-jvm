@@ -62,3 +62,27 @@ void Display::clear(std::uint8_t r, std::uint8_t g, std::uint8_t b) {
 void Display::present() {
     SDL_RenderPresent(renderer_);
 }
+
+void Display::flush() {
+    std::lock_guard<std::mutex> lock(fb_mutex_);
+    fb_ready_ = true;
+    fb_cv_.notify_one();
+}
+
+void Display::render() {
+    std::unique_lock<std::mutex> lock(fb_mutex_);
+    fb_cv_.wait_for(lock, std::chrono::milliseconds(16));
+    static SDL_Texture* texture = nullptr;
+    if (fb_ready_) {
+        if (texture) {
+            SDL_DestroyTexture(texture);
+        }
+        texture = SDL_CreateTextureFromSurface(renderer_, framebuffer_);
+        SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
+        fb_ready_ = false;
+    }
+    if (texture) {
+        SDL_FRect dst_rect{ 0, 0, static_cast<float>(width_ * scale_), static_cast<float>(height_ * scale_) };
+        SDL_RenderTexture(renderer_, texture, nullptr, &dst_rect);
+    }
+}

@@ -270,6 +270,11 @@ void java_lang_Thread_start(VM& vm, Thread& thread) {
     new_thread.push_frame(*run_method, std::span{ &thread_obj, 1 });
 }
 
+void javax_microedition_lcdui_Canvas_flush(VM& vm, Thread& thread) {
+    thread.current_frame().pop_stack(); // this
+    vm.display()->flush();
+}
+
 void javax_microedition_lcdui_Canvas_getHeight(VM& vm, Thread& thread) {
     thread.current_frame().pop_stack(); // this
     int32_t height = vm.display()->height();
@@ -282,19 +287,19 @@ void javax_microedition_lcdui_Canvas_getWidth(VM& vm, Thread& thread) {
     thread.current_frame().push_stack(width);
 }
 
-void javax_microedition_lcdui_Canvas_repaint(VM& vm, Thread& thread) {
-    auto height = std::get<int32_t>(thread.current_frame().pop_stack());
-    auto width = std::get<int32_t>(thread.current_frame().pop_stack());
-    auto y = std::get<int32_t>(thread.current_frame().pop_stack());
-    auto x = std::get<int32_t>(thread.current_frame().pop_stack());
-    thread.current_frame().pop_stack(); // this
-    //vm.display()->repaint(x, y, width, height);
-}
-
-void javax_microedition_lcdui_Canvas_serviceRepaints(VM& vm, Thread& thread) {
-    thread.current_frame().pop_stack(); // this
-    //vm.display()->service_repaints();
-}
+//void javax_microedition_lcdui_Canvas_repaint(VM& vm, Thread& thread) {
+//    auto height = std::get<int32_t>(thread.current_frame().pop_stack());
+//    auto width = std::get<int32_t>(thread.current_frame().pop_stack());
+//    auto y = std::get<int32_t>(thread.current_frame().pop_stack());
+//    auto x = std::get<int32_t>(thread.current_frame().pop_stack());
+//    thread.current_frame().pop_stack(); // this
+//    //vm.display()->repaint(x, y, width, height);
+//}
+//
+//void javax_microedition_lcdui_Canvas_serviceRepaints(VM& vm, Thread& thread) {
+//    thread.current_frame().pop_stack(); // this
+//    //vm.display()->service_repaints();
+//}
 
 void javax_microedition_lcdui_Font_init(VM& vm, Thread& thread) {
     auto* font_obj = std::get<Object*>(thread.current_frame().pop_stack());
@@ -315,6 +320,118 @@ void javax_microedition_lcdui_Graphics_drawImageNative(VM& vm, Thread& thread) {
     SDL_BlitSurface(img_native.sdl_surface, nullptr, gfx_native.sdl_surface, &dst_rect);
 }
 
+void javax_microedition_lcdui_Graphics_drawRectNative(VM& vm, Thread& thread) {
+    auto height = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto width = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto y = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto x = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& gfx_native = std::get<GraphicsNativeData>(gfx_instance.native_payload);
+    auto* color_field = gfx_instance.type.find_field("color", "I");
+    auto color = std::get<int32_t>(gfx_instance.fields[color_field->slot]);
+    SDL_SetRenderDrawColor(gfx_native.sdl_renderer,
+        (color >> 16) & 0xFF,
+        (color >> 8) & 0xFF,
+        color & 0xFF,
+        (color >> 24) & 0xFF);
+
+    const SDL_FRect rect{
+        .x = static_cast<float>(x), .y = static_cast<float>(y),
+        .w = static_cast<float>(width), .h = static_cast<float>(height)
+    };
+    SDL_RenderRect(gfx_native.sdl_renderer, &rect);
+    SDL_FlushRenderer(gfx_native.sdl_renderer);
+}
+
+void javax_microedition_lcdui_Graphics_drawRegion(VM& vm, Thread& thread) {
+    auto anchor = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto y_dest = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto x_dest = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto transform = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto height = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto width = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto y_src = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto x_src = std::get<int32_t>(thread.current_frame().pop_stack());
+    auto& img_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& img_native = std::get<ImageNativeData>(img_instance.native_payload);
+    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
+    auto& gfx_native = std::get<GraphicsNativeData>(gfx_instance.native_payload);
+
+    //if (transform != 0) {
+    //    throw std::runtime_error("Graphics.drawRegion: transform not supported");
+    //}
+
+    SDL_Rect src_rect{
+        .x = x_src, .y = y_src,
+        .w = width, .h = height
+    };
+    SDL_Rect dst_rect{
+        .x = x_dest, .y = y_dest,
+        .w = width, .h = height
+    };
+
+    enum Anchor {
+        HCENTER = 1,
+        VCENTER = 2,
+        LEFT = 4,
+        RIGHT = 8,
+        TOP = 16,
+        BOTTOM = 32,
+        BASELINE = 64
+    };
+
+    if ((anchor & RIGHT) != 0) {
+        dst_rect.x -= width;
+    }
+    else if ((anchor & HCENTER) != 0) {
+        dst_rect.x -= width / 2;
+    }
+
+    if ((anchor & BOTTOM) != 0) {
+        dst_rect.y -= height;
+    }
+    else if ((anchor & VCENTER) != 0) {
+        dst_rect.y -= height / 2;
+    }
+
+    enum Transform {
+        NONE          = 0b000,
+        ROT_90        = 0b101,
+        ROT_180       = 0b011,
+        ROT_270       = 0b110,
+        MIRROR        = 0b010,
+        MIRROT_ROT90  = 0b111,
+        MIRROT_ROT180 = 0b001,
+        MIRROT_ROT270 = 0b100
+    };
+
+    SDL_Surface* transformed_surface = img_native.sdl_surface;
+
+    if (transform == MIRROR || transform == MIRROT_ROT90 || transform == MIRROT_ROT180 || transform == MIRROT_ROT270) {
+        SDL_FlipSurface(img_native.sdl_surface, SDL_FLIP_HORIZONTAL);
+    }
+
+    bool rotated = false;
+    if (transform == ROT_90 || transform == MIRROT_ROT90) {
+        SDL_RotateSurface(img_native.sdl_surface, 90);
+        rotated = true;
+    }
+    if (transform == ROT_180 || transform == MIRROT_ROT180) {
+        SDL_RotateSurface(img_native.sdl_surface, 180);
+        rotated = true;
+    }
+    if (transform == ROT_270 || transform == MIRROT_ROT270) {
+        SDL_RotateSurface(img_native.sdl_surface, 270);
+        rotated = true;
+    }
+
+    SDL_BlitSurface(transformed_surface, &src_rect, gfx_native.sdl_surface, &dst_rect);
+    
+    if (rotated) {
+        SDL_DestroySurface(transformed_surface);
+    }
+}
+
 void javax_microedition_lcdui_Graphics_drawStringNative(VM& vm, Thread& thread) {
     auto y = std::get<int32_t>(thread.current_frame().pop_stack());
     auto x = std::get<int32_t>(thread.current_frame().pop_stack());
@@ -327,31 +444,15 @@ void javax_microedition_lcdui_Graphics_drawStringNative(VM& vm, Thread& thread) 
     auto* color_field = gfx_instance.type.find_field("color", "I");
     auto color = std::get<int32_t>(gfx_instance.fields[color_field->slot]);
     SDL_SetRenderDrawColor(gfx_native.sdl_renderer,
-        (color >> 24) & 0xFF, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
+        (color >> 16) & 0xFF,
+        (color >> 8) & 0xFF,
+        color & 0xFF,
+        (color >> 24) & 0xFF);
 
     SDL_RenderDebugText(gfx_native.sdl_renderer,
                         static_cast<float>(x), static_cast<float>(y),
                         str_native.value.c_str());
-}
-
-void javax_microedition_lcdui_Graphics_drawRectNative(VM& vm, Thread& thread) {
-    auto height = std::get<int32_t>(thread.current_frame().pop_stack());
-    auto width = std::get<int32_t>(thread.current_frame().pop_stack());
-    auto y = std::get<int32_t>(thread.current_frame().pop_stack());
-    auto x = std::get<int32_t>(thread.current_frame().pop_stack());
-    auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
-    auto& gfx_native = std::get<GraphicsNativeData>(gfx_instance.native_payload);
-    auto* color_field = gfx_instance.type.find_field("color", "I");
-    auto color = std::get<int32_t>(gfx_instance.fields[color_field->slot]);
-    SDL_SetRenderDrawColor(gfx_native.sdl_renderer,
-        (color >> 24) & 0xFF, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
-
-    const SDL_FRect rect{
-        .x = static_cast<float>(x), .y = static_cast<float>(y),
-        .w = static_cast<float>(width), .h = static_cast<float>(height)
-    };
-    SDL_RenderRect(gfx_native.sdl_renderer, &rect);
-    SDL_SaveBMP(gfx_native.sdl_surface, "debug.bmp");
+    SDL_FlushRenderer(gfx_native.sdl_renderer);
 }
 
 void javax_microedition_lcdui_Graphics_fillRect(VM& vm, Thread& thread) {
@@ -365,13 +466,17 @@ void javax_microedition_lcdui_Graphics_fillRect(VM& vm, Thread& thread) {
     auto* color_field = gfx_instance.type.find_field("color", "I");
     auto color = std::get<int32_t>(gfx_instance.fields[color_field->slot]);
     SDL_SetRenderDrawColor(gfx_native.sdl_renderer,
-        (color >> 24) & 0xFF, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
+        (color >> 16) & 0xFF,
+        (color >> 8) & 0xFF,
+        color & 0xFF,
+        (color >> 24) & 0xFF);
     
     const SDL_FRect rect{
         .x = static_cast<float>(x), .y = static_cast<float>(y),
         .w = static_cast<float>(width), .h = static_cast<float>(height)
     };
     SDL_RenderFillRect(gfx_native.sdl_renderer, &rect);
+    SDL_FlushRenderer(gfx_native.sdl_renderer);
 }
 
 void javax_microedition_lcdui_Graphics_init(VM& vm, Thread& thread) {
@@ -593,16 +698,19 @@ NativeMethods::NativeMethods() {
         { "java/lang/System.getProperty(Ljava/lang/String;)Ljava/lang/String;", java_lang_System_getProperty },
         { "java/lang/Thread.start()V", java_lang_Thread_start },
         
+        { "javax/microedition/lcdui/Canvas.flush()V", javax_microedition_lcdui_Canvas_flush },
         { "javax/microedition/lcdui/Canvas.getHeight()I", javax_microedition_lcdui_Canvas_getHeight },
         { "javax/microedition/lcdui/Canvas.getWidth()I", javax_microedition_lcdui_Canvas_getWidth },
-        { "javax/microedition/lcdui/Canvas.repaint(IIII)V", javax_microedition_lcdui_Canvas_repaint },
-        { "javax/microedition/lcdui/Canvas.serviceRepaints()V", javax_microedition_lcdui_Canvas_serviceRepaints },
+        //{ "javax/microedition/lcdui/Canvas.repaint(IIII)V", javax_microedition_lcdui_Canvas_repaint },
+        //{ "javax/microedition/lcdui/Canvas.serviceRepaints()V", javax_microedition_lcdui_Canvas_serviceRepaints },
         { "javax/microedition/lcdui/Font.init()V", javax_microedition_lcdui_Font_init },
         { "javax/microedition/lcdui/Graphics.drawImageNative(Ljavax/microedition/lcdui/Image;II)V",
            javax_microedition_lcdui_Graphics_drawImageNative },
+        { "javax/microedition/lcdui/Graphics.drawRectNative(IIII)V", javax_microedition_lcdui_Graphics_drawRectNative },
+        { "javax/microedition/lcdui/Graphics.drawRegion(Ljavax/microedition/lcdui/Image;IIIIIIII)V",
+           javax_microedition_lcdui_Graphics_drawRegion },
         { "javax/microedition/lcdui/Graphics.drawStringNative(Ljava/lang/String;II)V",
            javax_microedition_lcdui_Graphics_drawStringNative },
-        { "javax/microedition/lcdui/Graphics.drawRectNative(IIII)V", javax_microedition_lcdui_Graphics_drawRectNative },
         { "javax/microedition/lcdui/Graphics.fillRect(IIII)V", javax_microedition_lcdui_Graphics_fillRect },
         { "javax/microedition/lcdui/Graphics.init()V", javax_microedition_lcdui_Graphics_init },
         { "javax/microedition/lcdui/Graphics.init(Ljavax/microedition/lcdui/Image;)V",
