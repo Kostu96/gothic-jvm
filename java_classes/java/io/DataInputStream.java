@@ -29,11 +29,11 @@ public class DataInputStream extends InputStream implements DataInput {
     }
 
     public int read(byte[] b) throws IOException {
-        throw new UnimplementedError();
+        return in.read(b, 0, b.length);
     }
 
     public int read(byte[] b, int off, int len) throws IOException {
-        throw new UnimplementedError();
+        return in.read(b, off, len);
     }
 
     public final boolean readBoolean() throws IOException {
@@ -177,7 +177,7 @@ public class DataInputStream extends InputStream implements DataInput {
     }
 
     public long skip(long n) throws IOException {
-        throw new UnimplementedError();
+        return in.skip(n);
     }
 
     public final int skipBytes(int n) throws IOException {
