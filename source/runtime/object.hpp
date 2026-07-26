@@ -11,6 +11,14 @@ class RecordStore;
 struct SDL_Surface;
 struct SDL_Renderer;
 
+struct ThrowableNativeData {
+    struct StackTraceElement {
+        const Method* method;
+    };
+
+    std::vector<StackTraceElement> stack_trace;
+};
+
 struct ResourceInputStreamNativeData {
     std::vector<uint8_t> buffer;
     size_t position;
@@ -34,6 +42,7 @@ struct RecordStoreNativeData {
 };
 
 using NativePayload = std::variant<std::monostate,
+                                   ThrowableNativeData,
                                    ResourceInputStreamNativeData,
                                    StringNativeData,
                                    ImageNativeData,

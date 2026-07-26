@@ -25,10 +25,11 @@ a VM to bring that MIDlet to life.
   400-instruction quantum at a time, and `java.lang.Thread.start` spawns new green threads (each an
   explicit frame stack). There is still no yielding, blocking, or priorities.
 - Bytecode-level exceptions: `athrow` plus `Code` exception-table dispatch make `try`/`catch`/
-  `finally` work (handler types are matched by walking the superclass chain). Exception objects
-  carry no message/stack-trace state yet, and most VM-internal faults still surface as C++
-  exceptions — the one exception is a null receiver on a virtual/interface call, which now raises a
-  real `NullPointerException`.
+  `finally` work (handler types are matched by walking the superclass chain). `Throwable` now
+  captures a method-level stack trace, and an uncaught exception prints its type and frames to
+  stderr and cleanly stops the VM. Traces still lack line numbers, and most VM-internal faults still
+  surface as C++ exceptions — the one exception is a null receiver on a virtual/interface call,
+  which raises a real `NullPointerException`.
 - Real `java.lang.String`/`StringBuffer` objects backed by native C++ payloads; string constants
   are interned and deduplicated.
 - A set of native methods (timing, canvas size, `Class.forName`/`getClass`, `String`/`StringBuffer`
@@ -163,8 +164,9 @@ Known gaps:
 - **JVM-internal errors surface as C++ exceptions.** Divide-by-zero, array-store, and out-of-bounds
   conditions throw `std::runtime_error` instead of Java exceptions (a null receiver on an
   `invokevirtual`/`invokeinterface` is the exception — it raises a real `NullPointerException`).
-  Explicit `athrow` and the parsed exception table *do* work (`try`/`catch`/`finally` dispatch), but
-  exception objects carry no message/stack-trace state and handler matching walks only the
+  Explicit `athrow` and the parsed exception table *do* work (`try`/`catch`/`finally` dispatch), and
+  `Throwable` captures a method-level stack trace that an uncaught exception prints to stderr before
+  stopping the VM; the trace still carries no line numbers and handler matching walks only the
   superclass chain.
 - **No garbage collection** — the heap only grows.
 - **Partial type/opcode coverage.** Many opcodes are unimplemented (the interpreter throws on

@@ -4,10 +4,12 @@ public class Throwable {
 
     public Throwable() {
         message = null;
+        init();
     }
 
     public Throwable(String message) {
         this.message = message;
+        init();
     }
 
     public String getMessage() {
@@ -22,6 +24,8 @@ public class Throwable {
         String s = getClass().getName();
         return (message != null) ? (s + ": " + message) : s;
     }
+
+    private native void init();
 
     private String message;
 

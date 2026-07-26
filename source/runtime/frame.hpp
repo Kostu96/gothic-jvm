@@ -9,11 +9,11 @@ struct Method;
 
 class Frame {
 public:
-    Frame(Class& owner, const Method& method);
+    explicit Frame(const Method& method);
 
     Frame(Frame&&) = default;
 
-    Class& owner() const noexcept { return owner_; }
+    Class& owner() const noexcept;
     const Method& method() const noexcept { return method_; }
 
     std::vector<Value>& locals() noexcept { return locals_; }
@@ -41,7 +41,6 @@ public:
     Frame(const Frame&) = delete;
     Frame& operator=(const Frame&) = delete;
 private:
-    Class& owner_;
     const Method& method_;
     std::vector<Value> locals_;
     std::vector<Value> operand_stack_;

@@ -67,7 +67,11 @@ void VM::run(std::stop_token stop_token) {
 
         for (auto& thread : threads_) {
             if (!thread->is_terminated()) {
-                interpreter_.run(*thread, 400);
+                auto& th = *thread;
+                interpreter_.run(th, 400);
+                if (th.has_pending_exception()) {
+                    return;
+                }
             }
         }
     }

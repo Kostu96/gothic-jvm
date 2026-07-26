@@ -924,7 +924,9 @@ void Interpreter::run(Thread& thread, size_t num_instructions) {
         }
 
         if (thread.has_pending_exception()) {
-            dispatch_pending_exception(thread);
+            if (!dispatch_pending_exception(thread)) {
+                return;
+            }
         }
     }
 }
@@ -994,7 +996,7 @@ void Interpreter::invoke(Thread& thread, const Method& method) {
     }
 }
 
-void Interpreter::dispatch_pending_exception(Thread& thread) {
+bool Interpreter::dispatch_pending_exception(Thread& thread) {
     Object* exc = thread.pending_exception();
     Class& exc_class = std::get<InstanceData>(exc->data).type;
 
@@ -1014,11 +1016,18 @@ void Interpreter::dispatch_pending_exception(Thread& thread) {
                 frame.push_stack(exc);
                 frame.set_pc(e.handler_pc);
                 thread.clear_pending_exception();
-                return;
+                return true;
             }
         }
         thread.pop_frame();
     }
     
-    throw std::runtime_error(std::format("Uncaught exception: {}", exc_class.this_name()));
+    auto& exc_native = std::get<ThrowableNativeData>(std::get<InstanceData>(exc->data).native_payload);
+    std::println(stderr, "Uncaught exception: {}", exc_class.this_name());
+    for (const auto& elem : exc_native.stack_trace) {
+        std::println(stderr, "  at {}.{}{}", elem.method->owner.this_name(),
+            elem.method->name, elem.method->descriptor);
+    }
+
+    return false;
 }

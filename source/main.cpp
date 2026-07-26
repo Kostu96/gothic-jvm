@@ -32,6 +32,7 @@ int main(int argc, char** argv) {
         // the window and pumps its events, and a MIDlet's startApp() may never
         // return. The window loop below drives events (and, in the future,
         // painting the current Canvas).
+        std::atomic_flag finished = ATOMIC_FLAG_INIT;
         std::jthread jvm_thread([&](std::stop_token stop_token) {
             try {
                 vm.run(std::move(stop_token));
@@ -39,9 +40,10 @@ int main(int argc, char** argv) {
             catch (const std::exception& e) {
                 std::println(stderr, "{}", e.what());
             }
+            finished.test_and_set();
         });
 
-        while (display.process_events()) {
+        while (display.process_events() && !finished.test()) {
             display.clear(255, 255, 255);
             display.render();
             display.present();

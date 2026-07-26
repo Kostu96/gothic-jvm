@@ -2,12 +2,15 @@
 
 #include "runtime/class.hpp"
 
-Frame::Frame(Class& owner, const Method& method) :
-    owner_(owner),
+Frame::Frame(const Method& method) :
     method_(method),
     locals_( method.max_locals)
 {
     operand_stack_.reserve(method.max_stack);
+}
+
+Class& Frame::owner() const noexcept {
+    return method_.owner;
 }
 
 std::uint8_t Frame::pop_code_u8() {

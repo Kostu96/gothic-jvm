@@ -10,6 +10,8 @@ public:
     Frame& current_frame() noexcept { return frames_.back(); }
     void push_frame(const Method& method, std::span<const Value> args);
     void pop_frame() noexcept { frames_.pop_back(); }
+    std::span<const Frame> frames() const noexcept { return frames_; }
+
     bool is_terminated() const noexcept { return frames_.empty(); }
 
     void set_pending_exception(Object* e) noexcept { pending_exception_ = e; }

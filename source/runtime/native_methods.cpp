@@ -270,6 +270,24 @@ void java_lang_Thread_start(VM& vm, Thread& thread) {
     new_thread.push_frame(*run_method, std::span{ &thread_obj, 1 });
 }
 
+void java_lang_Throwable_init(VM& vm, Thread& thread) {
+    auto throwable_obj = thread.current_frame().pop_stack();
+    auto& throwable_instance = std::get<InstanceData>(std::get<Object*>(throwable_obj)->data);
+    
+    auto& throwable_class = vm.class_loader().load("java/lang/Throwable");
+
+    ThrowableNativeData native_data;
+    for (int i = thread.frames().size() - 1; i >= 0; --i) {
+        const auto& frame = thread.frames()[i];
+        if (frame.owner().is_subclass_of(throwable_class)) continue;
+        ThrowableNativeData::StackTraceElement element{
+            .method = &frame.method()
+        };
+        native_data.stack_trace.push_back(element);
+    }
+    throwable_instance.native_payload = native_data;
+}
+
 void javax_microedition_lcdui_Canvas_flush(VM& vm, Thread& thread) {
     thread.current_frame().pop_stack(); // this
     vm.display()->flush();
@@ -356,10 +374,6 @@ void javax_microedition_lcdui_Graphics_drawRegion(VM& vm, Thread& thread) {
     auto& img_native = std::get<ImageNativeData>(img_instance.native_payload);
     auto& gfx_instance = std::get<InstanceData>(std::get<Object*>(thread.current_frame().pop_stack())->data);
     auto& gfx_native = std::get<GraphicsNativeData>(gfx_instance.native_payload);
-
-    //if (transform != 0) {
-    //    throw std::runtime_error("Graphics.drawRegion: transform not supported");
-    //}
 
     SDL_Rect src_rect{
         .x = x_src, .y = y_src,
@@ -697,6 +711,7 @@ NativeMethods::NativeMethods() {
         { "java/lang/System.currentTimeMillis()J", java_lang_System_currentTimeMillis },
         { "java/lang/System.getProperty(Ljava/lang/String;)Ljava/lang/String;", java_lang_System_getProperty },
         { "java/lang/Thread.start()V", java_lang_Thread_start },
+        { "java/lang/Throwable.init()V", java_lang_Throwable_init },
         
         { "javax/microedition/lcdui/Canvas.flush()V", javax_microedition_lcdui_Canvas_flush },
         { "javax/microedition/lcdui/Canvas.getHeight()I", javax_microedition_lcdui_Canvas_getHeight },

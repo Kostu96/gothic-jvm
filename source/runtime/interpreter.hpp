@@ -21,7 +21,7 @@ public:
 private:
     void virtual_dispatch(Thread& thread, const Method& resolved_method);
     void invoke(Thread& thread, const Method& method);
-    void dispatch_pending_exception(Thread& thread);
+    bool dispatch_pending_exception(Thread& thread);
 
     VM& vm_;
 };

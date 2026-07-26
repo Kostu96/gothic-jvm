@@ -131,9 +131,11 @@ build/                          # generated VS solution/projects + build/java_cl
    runs `vm.run(stop_token)` on a **background `std::jthread`** (SDL must own the thread that
    created the window/pumps events, and a MIDlet's `startApp()` may never return) and spins the
    window event/render loop on the main thread (`process_events` -> `clear(255,255,255)` ->
-   `render()` -> `present()`, where `render()` blits the framebuffer to the window). On window
-   close, the `std::jthread` destructor requests stop (via the `std::stop_token` `VM::run` polls)
-   and joins the JVM thread; the lambda prints any escaping exception to stderr.
+   `render()` -> `present()`, where `render()` blits the framebuffer to the window). The window
+   loop also exits when the JVM thread's lambda finishes (an `std::atomic_flag finished` it sets on
+   exit), e.g. after an uncaught exception. On window close, the `std::jthread` destructor requests
+   stop (via the `std::stop_token` `VM::run` polls) and joins the JVM thread; the lambda prints any
+   escaping exception to stderr.
 2. `VM` ctor wires its owned `NativeMethods` into the `ClassLoader` and adds `<cwd>/java_classes`.
    It does **not** eagerly load or initialize any class.
 3. `VM::run(std::stop_token)` is a **bootstrap state machine** driving a `while (true)` loop that
@@ -145,8 +147,9 @@ build/                          # generated VS solution/projects + build/java_cl
    drained empty): `Boot` inits `String`; `Phase1` inits the main class; `Phase2` `new_instance`s
    the MIDlet and pushes its `<init>()V`; `Phase3` pushes `startApp()V`; `Phase4` is terminal (its
    `return` is commented out, so the loop keeps spinning to service any threads spawned via
-   `Thread.start` until stop is requested). Class init and lifecycle entries are scheduled as
-   pushed frames, not synchronous C++ calls.
+   `Thread.start` until stop is requested — though it also `return`s early if any thread still
+   `has_pending_exception()` after its quantum, i.e. an uncaught exception). Class init and
+   lifecycle entries are scheduled as pushed frames, not synchronous C++ calls.
 4. `Interpreter` holds a `VM&`. `run(Thread&, num_instructions)` executes up to that many opcodes
    against `thread.current_frame()`, stopping early if the thread terminates (stop is polled by
    `VM::run` between 400-instruction quanta, not per-instruction). Method calls do **not** recurse
@@ -170,12 +173,14 @@ build/                          # generated VS solution/projects + build/java_cl
   InstanceArrayData, ClassMirrorData>` in `.data`, plus a `Monitor{Thread* owner; uint32_t
   recursion_count}` (used by `monitorenter`/`monitorexit`).
   - `InstanceData`: `Class& type` + `vector<Value> fields` (by field slot) + `native_payload`
-    (`NativePayload = variant<monostate, ResourceInputStreamNativeData, StringNativeData,
-    ImageNativeData, GraphicsNativeData, RecordStoreNativeData>`). `String`/`StringBuffer` carry
-    `StringNativeData{value}` (raw `std::string`), `ResourceInputStream` carries `{buffer,
-    position}`, `Image` carries an `SDL_Surface*`, `Graphics` carries an `SDL_Renderer*` +
-    `SDL_Surface*`, `RecordStore` carries a non-owning `RecordStore*` (into the
-    `RecordStoreManager`).
+    (`NativePayload = variant<monostate, ThrowableNativeData, ResourceInputStreamNativeData,
+    StringNativeData, ImageNativeData, GraphicsNativeData, RecordStoreNativeData>`).
+    `String`/`StringBuffer` carry `StringNativeData{value}` (raw `std::string`), `ResourceInputStream`
+    carries `{buffer, position}`, `Image` carries an `SDL_Surface*`, `Graphics` carries an
+    `SDL_Renderer*` + `SDL_Surface*`, `RecordStore` carries a non-owning `RecordStore*` (into the
+    `RecordStoreManager`), and any `Throwable` carries `ThrowableNativeData{ vector<StackTraceElement>
+    stack_trace }` where `StackTraceElement` is just `{ const Method* method }` (captured at
+    construction — see [Native callbacks](#native-callbacks)).
   - `PrimitiveArrayData`: variant of typed element vectors (boolean/byte→uint8, char→char16,
     short→int16, int→int32, long→int64, float, double) with `ElementType` tags matching JVM
     `newarray` atype codes (4..11); `get`/`set` widen to `Value`.
@@ -209,16 +214,20 @@ build/                          # generated VS solution/projects + build/java_cl
   `string_objects_`), `class_object_for(Class&)` (lazily creates/caches one canonical
   `java/lang/Class` mirror per `Class`). Requires the String class registered via
   `set_string_class` before any string is interned.
-- **Frame** (movable): `owner()`/`method()`, `locals()`, `operand_stack()`, `pc()`/`set_pc(pc)`
+- **Frame** (movable): `owner()` (derived from `method().owner`; the frame no longer stores a
+  separate `Class&`)/`method()`, `locals()`, `operand_stack()`, `pc()`/`set_pc(pc)`
   (jumps use `branch(offset)`; `set_pc` also used to jump to an exception `handler_pc`),
   `record_last_pc()`/`last_pc()` (the interpreter snapshots the current pc before each instruction;
   used by lazy class init and exception dispatch to locate the faulting instruction) and
   `rewind_pc()` (rewind pc to `last_pc_`, i.e. the start of the current instruction, for lazy class
   init), `pop_code_u8/u16/i32` (the `i32` reader backs `tableswitch`/`lookupswitch`),
   `push_stack`/`pop_stack`/`peek_stack(index = 0)` (depth-indexed from
-  top). Ctor sizes `locals` to `max_locals`, reserves `max_stack`.
+  top). Ctor is `explicit Frame(const Method&)`; it sizes `locals` to `max_locals`, reserves
+  `max_stack`.
 - **Thread** (`thread.{hpp,cpp}`): a green thread = explicit JVM call stack. Owns
-  `std::vector<Frame> frames_`; `current_frame()`, `push_frame(method, span<const Value> args)`
+  `std::vector<Frame> frames_`; `current_frame()`, `frames()` (a read-only `std::span<const Frame>`
+  over the whole stack, used by `Throwable.init` to capture a stack trace),
+  `push_frame(method, span<const Value> args)`
   (lays `args` into locals via `arg_slot_widths`), `pop_frame()`, `is_terminated()`
   (`frames_.empty()`). Also carries a single **pending exception** slot (`Object*`):
   `set_pending_exception`/`pending_exception`/`has_pending_exception`/`clear_pending_exception`
@@ -385,16 +394,23 @@ faults do **not** use it:
   resource fails to load).
 - After **every** dispatched instruction `Interpreter::run` checks `thread.has_pending_exception()`
   and, if set, calls `dispatch_pending_exception(thread)`.
-- `dispatch_pending_exception` walks the frame stack from the top: for the current frame it scans
+- `dispatch_pending_exception` (returns `bool`) walks the frame stack from the top: for the current
+  frame it scans
   `method().exception_table` for an entry whose `[start_pc, end_pc)` covers `frame.last_pc()` and
   whose `catch_type` matches (`catch_type == 0` is catch-all/`finally`; otherwise the entry's
   class is resolved and matched via `exc_class.is_subclass_of(handler_type)`). On a match it clears
   the operand stack, pushes the exception, `set_pc(handler_pc)`, clears the pending slot, and
-  returns. On no match it `pop_frame`s and continues outward.
-- If the stack drains with no handler, it throws `std::runtime_error("Uncaught exception: <name>")`,
-  which unwinds the C++ interpreter (killing the thread).
-- Caveats: no exception *object* state is populated (message/stack trace are ignored; `Throwable`'s
-  constructors are TODO stubs); superinterface handler types are matched only through `super_`
+  returns `true`. On no match it `pop_frame`s and continues outward.
+- If the stack drains with no handler, `dispatch_pending_exception` prints `Uncought exception:
+  <name>` plus one `  at <owner>.<name><descriptor>` line per captured
+  `ThrowableNativeData::stack_trace` element to **stderr**, then returns `false`. `Interpreter::run`
+  returns early on `false` (abandoning the thread with its frames intact), and `VM::run` also
+  returns as soon as a thread still `has_pending_exception()` after its quantum — so an uncaught
+  exception terminates the VM loop (and, via the `main.cpp` `finished` flag, the window loop) rather
+  than throwing a C++ `std::runtime_error`.
+- Caveats: exception *object* state is still limited — only a method-level `stack_trace` (no bci /
+  line numbers) is captured, and the message is whatever the Java ctor stored; superinterface
+  handler types are matched only through `super_`
   (`is_subclass_of` walks the superclass chain, not interfaces); there is no `NoClassDefFoundError`
   or VM-synthesized `ArithmeticException` (only the null virtual-call receiver NPE above is
   synthesized).
@@ -432,6 +448,10 @@ in an anonymous namespace, named after their fully-qualified Java method. Regist
   `microedition.locale` (the previous `"en-US"` return is commented out); throws for any other key.
 - `java/lang/Thread.start()V` — spawns a new green thread via `VM::create_thread` and pushes the
   receiver's `run()V` frame onto it.
+- `java/lang/Throwable.init()V` — called from both `Throwable` constructors; captures a stack trace
+  into the instance's `ThrowableNativeData` by walking `thread.frames()` from the top down, skipping
+  frames whose owner `is_subclass_of(Throwable)` (the ctor chain) and recording each remaining
+  `&frame.method()` as a `StackTraceElement`. Printed to stderr when the exception goes uncaught.
 - `javax/microedition/lcdui/Canvas.getWidth()I` / `getHeight()I` — return the connected
   `Display`'s size (no null-display fallback; dereferences `vm.display()`).
 - `javax/microedition/lcdui/Canvas.flush()V` — private native called at the end of Java
@@ -504,12 +524,15 @@ in an anonymous namespace, named after their fully-qualified Java method. Regist
 - **Constant pool coverage is partial:** `Float` (tag 4) and `Double` (tag 6) are not parsed and
   throw "Unsupported constant pool tag". `get_constant` only returns Integer/Long.
 - **Exceptions are partial:** `athrow` and `Code` `exception_table` handler dispatch work (see
-  [Exception handling](#exception-handling)), but exception *objects* carry no state (message/stack
-  trace unset; `Throwable` ctors are stubs), handler matching walks only the superclass chain (not
+  [Exception handling](#exception-handling)); `Throwable` now captures a method-level stack trace
+  (via the `Throwable.init()V` native) and an uncaught exception prints `Uncought exception: <name>`
+  plus one `at <owner>.<name><descriptor>` line per frame to stderr and cleanly terminates the VM
+  loop (no longer a C++ `std::runtime_error`). Still limited: the trace has no bci/line numbers,
+  handler matching walks only the superclass chain (not
   interfaces), and most VM-internal faults (div-by-zero, ArrayStore, index OOB, missing
   method/field) still throw `std::runtime_error` instead of Java exceptions — the one exception is a
   null `invokevirtual`/`invokeinterface` receiver, which raises a real `java/lang/NullPointerException`.
-  No `NoSuchMethodError`/`AbstractMethodError` modeling.
+  No `NoSuchMethodError`/`AbstractMethodError` modeling (the printed label is misspelled "Uncought").
 - **No garbage collection;** the heap only grows.
 - **Framebuffer presentation is wired up but rough.** `Display::flush()` (JVM thread, via the
   `Canvas.flush()` native at the end of `serviceRepaints()`) hands the framebuffer to
